@@ -6,10 +6,24 @@
 <meta name="apple-mobile-web-app-capable" content="yes">
 <meta name="mobile-web-app-capable" content="yes">
 <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
-<meta name="apple-mobile-web-app-title" content="AR Overlay">
+<meta name="apple-mobile-web-app-title" content="AR Viewer">
 <meta name="theme-color" content="#000000">
 <link rel="manifest" href="manifest.webmanifest">
-<title>AR Overlay</title>
+<title>AR Floor Viewer</title>
+
+<!-- 8th Wall Engine (SLAM world tracking) + helpers. See NOTICE.md for licence and attribution. -->
+<script src="https://cdn.jsdelivr.net/npm/@8thwall/engine-binary@1/dist/xr.js" async crossorigin="anonymous" data-preload-chunks="slam"></script>
+<script src="https://cdn.jsdelivr.net/npm/@8thwall/xrextras@1/dist/xrextras.js" crossorigin="anonymous"></script>
+<script src="https://cdn.jsdelivr.net/npm/@8thwall/landing-page@1/dist/landing-page.js" crossorigin="anonymous"></script>
+
+<script type="importmap">
+{
+  "imports": {
+    "three": "https://cdn.jsdelivr.net/npm/three@0.183.2/build/three.module.js",
+    "three/addons/": "https://cdn.jsdelivr.net/npm/three@0.183.2/examples/jsm/"
+  }
+}
+</script>
 <style>
   :root {
     --panel-bg: rgba(18, 18, 20, 0.84);
@@ -26,30 +40,36 @@
     font: 14px/1.35 -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
     overscroll-behavior: none; -webkit-user-select: none; user-select: none;
   }
-  #feed, #view { position: fixed; inset: 0; width: 100%; height: 100%; }
-  #feed { object-fit: cover; background: radial-gradient(ellipse at 50% 35%, #3a3d44, #15161a 70%); }
-  #view { touch-action: none; display: block; }
+  #camerafeed { position: fixed; inset: 0; width: 100%; height: 100%; display: block; touch-action: none; }
 
   /* Start screen */
   #start {
     position: fixed; inset: 0; z-index: 30; display: grid; place-items: center; padding: 24px;
-    background: rgba(0, 0, 0, 0.72); backdrop-filter: blur(8px); -webkit-backdrop-filter: blur(8px);
+    background: radial-gradient(ellipse at 50% 35%, #2c2f36, #0e0f12 70%);
   }
   #start.gone { display: none; }
   .card {
-    width: min(380px, 100%); background: var(--panel-bg); border: 1px solid var(--panel-line);
+    width: min(390px, 100%); background: var(--panel-bg); border: 1px solid var(--panel-line);
     border-radius: 20px; padding: 24px; text-align: center;
   }
   .card h1 { margin: 0 0 8px; font-size: 20px; font-weight: 650; }
-  .card p { margin: 0 0 20px; color: var(--muted); }
-  .card .err { color: var(--danger); margin: 14px 0 0; min-height: 1em; }
+  .card p { margin: 0 0 18px; color: var(--muted); }
+  .card .small { font-size: 11px; margin: 16px 0 0; }
+  .card .small a { color: var(--muted); }
   .btn {
     appearance: none; border: 0; border-radius: 10px; padding: 10px 14px; font: inherit; font-weight: 600;
     background: rgba(255, 255, 255, 0.1); color: var(--text); cursor: pointer;
   }
   .btn:active { transform: scale(0.97); }
   .btn.primary { background: var(--accent); color: #031426; width: 100%; padding: 14px; font-size: 16px; }
-  .btn.link { background: none; color: var(--muted); font-weight: 500; margin-top: 10px; }
+
+  /* HUD prompt */
+  #hud {
+    position: fixed; z-index: 15; left: 50%; top: max(18px, env(safe-area-inset-top)); transform: translateX(-50%);
+    background: rgba(0,0,0,0.6); padding: 9px 16px; border-radius: 999px; font-size: 14px; white-space: nowrap;
+    pointer-events: none;
+  }
+  #hud:empty { display: none; }
 
   /* Panel */
   #panel {
@@ -62,17 +82,14 @@
   @media (max-aspect-ratio: 1/1) {
     #panel {
       top: auto; left: max(8px, env(safe-area-inset-left)); right: max(8px, env(safe-area-inset-right));
-      width: auto; height: 46vh; bottom: max(8px, env(safe-area-inset-bottom));
+      width: auto; height: 44vh; bottom: max(8px, env(safe-area-inset-bottom));
     }
   }
-  .head {
-    display: flex; align-items: center; gap: 6px; padding: 10px 10px 10px 14px;
-    border-bottom: 1px solid var(--panel-line);
-  }
-  .head .title { font-weight: 650; flex: 1; }
+  .head { display: flex; align-items: center; gap: 6px; padding: 10px 10px 10px 14px; border-bottom: 1px solid var(--panel-line); }
+  .head .title { font-weight: 650; flex: 1; min-width: 0; }
   .head .status { color: var(--muted); font-size: 12px; font-weight: 400; display: block;
-    white-space: nowrap; overflow: hidden; text-overflow: ellipsis; max-width: 170px; }
-  .head .btn { padding: 7px 10px; font-size: 13px; }
+    white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+  .head .btn { padding: 7px 10px; font-size: 13px; flex: none; }
   .body { overflow-y: auto; flex: 1; padding: 4px 0 8px; -webkit-overflow-scrolling: touch; }
   details.sec { border-bottom: 1px solid var(--panel-line); }
   details.sec > summary {
@@ -114,6 +131,8 @@
   .switch input:checked + span { background: var(--accent); }
   .switch input:checked + span::after { transform: translateX(18px); }
   .hint { color: var(--muted); font-size: 12px; margin: -4px 0 0; }
+  .credit { color: var(--muted); font-size: 11px; padding: 8px 14px 0; }
+  .credit a { color: var(--muted); }
   .foot { display: flex; flex-wrap: wrap; gap: 6px; padding: 10px; border-top: 1px solid var(--panel-line); }
   .foot .btn { flex: 1 1 auto; font-size: 13px; padding: 9px 8px; }
   .foot .btn.warn { color: var(--danger); }
@@ -132,54 +151,55 @@
   body.bare #panel, body.bare #showBtn { display: none; }
 
   #toast {
-    position: fixed; z-index: 40; left: 50%; top: max(16px, env(safe-area-inset-top)); transform: translate(-50%, -8px);
-    background: rgba(0,0,0,0.78); padding: 9px 14px; border-radius: 999px; font-size: 13px;
+    position: fixed; z-index: 40; left: 50%; bottom: 50%; transform: translate(-50%, 8px);
+    background: rgba(0,0,0,0.8); padding: 9px 14px; border-radius: 999px; font-size: 13px;
     opacity: 0; transition: opacity .2s, transform .2s; pointer-events: none; white-space: nowrap;
   }
   #toast.on { opacity: 1; transform: translate(-50%, 0); }
-  #fileIn { display: none; }
+  input[type=file] { display: none; }
 </style>
-<script type="importmap">
-{
-  "imports": {
-    "three": "https://cdn.jsdelivr.net/npm/three@0.170.0/build/three.module.js",
-    "three/addons/": "https://cdn.jsdelivr.net/npm/three@0.170.0/examples/jsm/"
-  }
-}
-</script>
 </head>
 <body class="closed">
-<video id="feed" playsinline muted autoplay></video>
-<canvas id="view"></canvas>
-
-<div id="start">
-  <div class="card">
-    <h1>AR Overlay</h1>
-    <p>Uses the rear camera as a live background. Keep the device still, then line the model up with the controls.</p>
-    <button class="btn primary" id="startCam">Start camera</button>
-    <button class="btn link" id="startNoCam">Continue without camera</button>
-    <p class="err" id="startErr"></p>
-  </div>
-</div>
+<canvas id="camerafeed"></canvas>
+<div id="hud"></div>
 
 <aside id="panel">
   <div class="head">
     <div class="title">Controls<span class="status" id="status">Loading model…</span></div>
+    <button class="btn" id="moveBtn">Move</button>
     <button class="btn" id="bareBtn" title="Hide everything — double-tap to bring back">Hide all</button>
     <button class="btn" id="closeBtn" aria-label="Close panel">✕</button>
   </div>
-  <div class="body" id="body"></div>
+  <div class="body" id="body">
+    <p class="credit">AR tracking: 8th Wall Engine © Niantic Spatial, Inc. Used under the
+      <a href="https://github.com/8thwall/engine/blob/main/LICENSE" target="_blank" rel="noopener">8th Wall Engine Binary License</a>,
+      provided “as is” without warranty. Not affiliated with or endorsed by Niantic Spatial.</p>
+  </div>
   <div class="foot">
+    <button class="btn" id="recenterBtn">Recenter</button>
     <button class="btn" id="loadBtn">Load model…</button>
-    <button class="btn" id="fsBtn">Fullscreen</button>
+    <button class="btn" id="musicBtn">Load music…</button>
     <button class="btn" id="copyBtn">Copy settings</button>
     <button class="btn" id="pasteBtn">Paste settings</button>
     <button class="btn warn" id="resetBtn">Reset</button>
   </div>
 </aside>
 <button id="showBtn" aria-label="Show controls">☰</button>
-<input type="file" id="fileIn">
 <div id="toast"></div>
+
+<div id="start">
+  <div class="card">
+    <h1>AR Floor Viewer</h1>
+    <p>Point the camera at the floor and move the phone slowly. Tap the floor to place the model.</p>
+    <button class="btn primary" id="startBtn">Start AR</button>
+    <p class="small">AR tracking by the 8th Wall Engine © Niantic Spatial, Inc. —
+      <a href="https://github.com/8thwall/engine/blob/main/LICENSE" target="_blank" rel="noopener">licence &amp; disclaimer</a></p>
+  </div>
+</div>
+
+<audio id="music" loop preload="auto" playsinline></audio>
+<input type="file" id="fileIn">
+<input type="file" id="musicIn">
 
 <script type="module">
 import * as THREE from 'three';
@@ -188,36 +208,39 @@ import { DRACOLoader } from 'three/addons/loaders/DRACOLoader.js';
 import { MeshoptDecoder } from 'three/addons/libs/meshopt_decoder.module.js';
 import { RoomEnvironment } from 'three/addons/environments/RoomEnvironment.js';
 
+window.THREE = THREE; // the 8th Wall three.js module uses the global THREE
+
 // ---------- Config ----------
-const MODEL_URL = 'model.glb'; // put your model next to index.html with this name
+const MODEL_URL = 'model.glb';   // your animated model, next to index.html
+const MUSIC_URL = 'music.mp3';   // your music track, next to index.html
 const FALLBACK_URL = 'https://cdn.jsdelivr.net/gh/mrdoob/three.js@r170/examples/models/gltf/RobotExpressive/RobotExpressive.glb';
-const STORE_KEY = 'ar-overlay-settings-v1';
+const STORE_KEY = 'ar-8thwall-settings-v1';
 
 const DEFS = [
   { section: 'Placement', open: true, items: [
-    { key: 'posX', label: 'Left / right', min: -5, max: 5, step: 0.01, def: 0, unit: 'm' },
-    { key: 'posZ', label: 'Distance from device', min: 0.3, max: 15, step: 0.01, def: 3, unit: 'm' },
-    { key: 'posY', label: 'Surface height (0 = floor)', min: -1, max: 2, step: 0.01, def: 0, unit: 'm' },
     { key: 'rotY', label: 'Rotation', min: -180, max: 180, step: 1, def: 0, unit: '°' },
     { key: 'size', label: 'Model height', min: 0.05, max: 10, step: 0.01, def: 1.2, unit: 'm' },
-    { type: 'hint', text: 'Touch: drag to move on the floor, pinch to scale, twist to rotate.' },
+    { key: 'offX', label: 'Nudge left / right', min: -1, max: 1, step: 0.005, def: 0, unit: 'm' },
+    { key: 'offZ', label: 'Nudge closer / further', min: -1, max: 1, step: 0.005, def: 0, unit: 'm' },
+    { key: 'offY', label: 'Nudge up / down', min: -0.3, max: 0.3, step: 0.002, def: 0, unit: 'm' },
+    { type: 'toggle', key: 'lockGestures', label: 'Lock touch gestures', def: false },
+    { type: 'hint', text: 'Tap the floor to place. Then: drag to move, pinch to scale, twist to rotate. Rotation 0 faces where you placed it from.' },
+  ]},
+  { section: 'Tracking', items: [
+    { key: 'camH', label: 'Phone height above floor', min: 0.2, max: 3, step: 0.01, def: 1.4, unit: 'm' },
+    { type: 'hint', text: 'Sets the real-world scale: measure how high the phone is held or mounted. Changing it recenters tracking — hold the phone still at that height, then place the model again.' },
   ]},
   { section: 'Animation', items: [
     { type: 'clip', key: 'clip', label: 'Clip' },
     { type: 'toggle', key: 'playing', label: 'Playing', def: true },
     { key: 'animSpeed', label: 'Speed', min: 0, max: 3, step: 0.05, def: 1, unit: '×' },
   ]},
-  { section: 'Camera match', items: [
-    { type: 'lens', key: 'lens', label: 'Lens' },
-    { key: 'camH', label: 'Device height above floor', min: 0.05, max: 3, step: 0.01, def: 1.2, unit: 'm' },
-    { key: 'camTilt', label: 'Tilt down', min: -45, max: 85, step: 0.1, def: 10, unit: '°' },
-    { key: 'camRoll', label: 'Roll', min: -20, max: 20, step: 0.1, def: 0, unit: '°' },
-    { key: 'fov', label: 'Lens field of view (long edge)', min: 30, max: 120, step: 0.1, def: 68, unit: '°' },
-    { type: 'toggle', key: 'grid', label: 'Show 1 m floor grid', def: false },
-    { type: 'hint', text: 'Turn the grid on, measure the device height, then adjust tilt and field of view until the grid sits flat on the real floor.' },
+  { section: 'Music', items: [
+    { type: 'toggle', key: 'musicOn', label: 'Play music (loops)', def: true },
+    { key: 'volume', label: 'Volume', min: 0, max: 1, step: 0.01, def: 0.7 },
   ]},
   { section: 'Lighting', items: [
-    { key: 'lightAz', label: 'Sun direction', min: 0, max: 360, step: 1, def: 35, unit: '°' },
+    { key: 'lightAz', label: 'Sun direction (0 = from viewer)', min: -180, max: 180, step: 1, def: 35, unit: '°' },
     { key: 'lightEl', label: 'Sun height', min: 3, max: 90, step: 1, def: 50, unit: '°' },
     { key: 'lightInt', label: 'Sun intensity', min: 0, max: 10, step: 0.05, def: 2.5 },
     { type: 'color', key: 'lightColor', label: 'Sun colour', def: '#fff4e5' },
@@ -225,42 +248,31 @@ const DEFS = [
     { type: 'color', key: 'ambColor', label: 'Ambient colour', def: '#dfe8ff' },
     { key: 'envInt', label: 'Reflections', min: 0, max: 3, step: 0.05, def: 0.8 },
     { key: 'exposure', label: 'Exposure', min: 0.2, max: 3, step: 0.01, def: 1 },
+    { type: 'hint', text: 'Match real shadows: point the sun the way real shadows fall, then set its height until the shadow lengths match.' },
   ]},
   { section: 'Shadow', items: [
     { key: 'shadowOpacity', label: 'Shadow darkness', min: 0, max: 1, step: 0.01, def: 0.45 },
     { key: 'shadowSoft', label: 'Shadow softness', min: 0, max: 12, step: 0.1, def: 3 },
   ]},
-  { section: 'Camera feed', items: [
-    { key: 'feedBright', label: 'Brightness', min: 0.3, max: 2, step: 0.01, def: 1 },
-    { key: 'feedContrast', label: 'Contrast', min: 0.5, max: 1.6, step: 0.01, def: 1 },
-    { key: 'feedSat', label: 'Saturation', min: 0, max: 2, step: 0.01, def: 1 },
-  ]},
-  { section: 'Behaviour', items: [
-    { type: 'toggle', key: 'lockGestures', label: 'Lock touch gestures', def: false },
-  ]},
 ];
 
-const DEFAULTS = {};
+const DEFAULTS = { clip: '' };
 for (const s of DEFS) for (const it of s.items) if (it.key && 'def' in it) DEFAULTS[it.key] = it.def;
-DEFAULTS.clip = '';
-DEFAULTS.lens = '';
 
 // ---------- Settings ----------
 let stored = {};
 try { stored = JSON.parse(localStorage.getItem(STORE_KEY) || '{}') || {}; } catch {}
-const S = { ...DEFAULTS, ...stored };
+const S = { ...DEFAULTS };
+for (const k in DEFAULTS) if (k in stored) S[k] = stored[k];
 let sizeIsSet = 'size' in stored;
 let saveTimer;
 function save() {
   clearTimeout(saveTimer);
-  saveTimer = setTimeout(() => {
-    try { localStorage.setItem(STORE_KEY, JSON.stringify(S)); } catch {}
-  }, 250);
+  saveTimer = setTimeout(() => { try { localStorage.setItem(STORE_KEY, JSON.stringify(S)); } catch {} }, 250);
 }
 
-// ---------- DOM ----------
+// ---------- DOM helpers ----------
 const $ = id => document.getElementById(id);
-const video = $('feed'), canvas = $('view');
 function el(tag, attrs = {}, ...kids) {
   const n = document.createElement(tag);
   for (const [k, v] of Object.entries(attrs)) n.setAttribute(k, v);
@@ -275,90 +287,60 @@ function toast(msg, ms = 2200) {
   const t = $('toast'); t.textContent = msg; t.classList.add('on');
   clearTimeout(toastTimer); toastTimer = setTimeout(() => t.classList.remove('on'), ms);
 }
-function setStatus(msg) { $('status').textContent = msg; }
+const setStatus = msg => { $('status').textContent = msg; };
+const setHud = msg => { $('hud').textContent = msg; };
 
-// ---------- Three.js scene ----------
-const renderer = new THREE.WebGLRenderer({ canvas, alpha: true, antialias: true });
-renderer.setPixelRatio(Math.min(devicePixelRatio, 2));
-renderer.setClearColor(0x000000, 0);
-renderer.toneMapping = THREE.ACESFilmicToneMapping;
-renderer.shadowMap.enabled = true;
-renderer.shadowMap.type = THREE.PCFShadowMap;
-
-const scene = new THREE.Scene();
-scene.environment = new THREE.PMREMGenerator(renderer).fromScene(new RoomEnvironment(), 0.04).texture;
-
-const camera = new THREE.PerspectiveCamera(50, 1, 0.02, 200);
-camera.rotation.order = 'YXZ';
-
+// ---------- Scene content (added to the 8th Wall scene once it starts) ----------
 const hemi = new THREE.HemisphereLight(0xffffff, 0x444444, 0.4);
-scene.add(hemi);
-
 const sun = new THREE.DirectionalLight(0xffffff, 2.5);
 sun.castShadow = true;
 sun.shadow.mapSize.set(2048, 2048);
 sun.shadow.bias = -0.0004;
 sun.shadow.normalBias = 0.02;
 sun.shadow.blurSamples = 16;
-scene.add(sun, sun.target);
 
+// 8th Wall puts the ground at y = 0, so the shadow catcher lives there
 const shadowMat = new THREE.ShadowMaterial({ opacity: 0.45 });
-const floor = new THREE.Mesh(new THREE.PlaneGeometry(200, 200), shadowMat);
-floor.rotation.x = -Math.PI / 2;
-floor.receiveShadow = true;
-scene.add(floor);
+const shadowPlane = new THREE.Mesh(new THREE.PlaneGeometry(1, 1).rotateX(-Math.PI / 2), shadowMat);
+shadowPlane.receiveShadow = true;
 
-const grid = new THREE.GridHelper(20, 20, 0x4da3ff, 0xffffff);
-grid.material.transparent = true;
-grid.material.opacity = 0.55;
-grid.position.z = -10;
-scene.add(grid);
+const reticle = new THREE.Group();
+reticle.add(
+  new THREE.Mesh(new THREE.RingGeometry(0.09, 0.11, 48).rotateX(-Math.PI / 2), new THREE.MeshBasicMaterial({ color: 0xffffff })),
+  new THREE.Mesh(new THREE.CircleGeometry(0.015, 24).rotateX(-Math.PI / 2), new THREE.MeshBasicMaterial({ color: 0xffffff })));
+reticle.visible = false;
 
-const pivot = new THREE.Group(); // positioned/rotated/scaled by settings
-const inner = new THREE.Group(); // recentres the model so its base sits on the floor
+const pivot = new THREE.Group();
+const inner = new THREE.Group();
 pivot.add(inner);
-scene.add(pivot);
 
+let scene = null, camera = null, renderer = null;
 let model = null, mixer = null, clips = [], action = null, naturalHeight = 1;
-const clock = new THREE.Clock();
+const timer = new THREE.Timer();
+
+const anchorPos = new THREE.Vector3(0, 0, -2);
+let anchorYaw = 0;
+let placing = true;
 
 // ---------- Apply settings ----------
-function updateProjection() {
-  const W = innerWidth, H = innerHeight;
-  renderer.setSize(W, H, false);
-  camera.aspect = W / H;
-  const half = rad(S.fov) / 2;
-  const vw = video.videoWidth, vh = video.videoHeight;
-  let vfov;
-  if (vw && vh) {
-    // Lens FOV refers to the video's long edge; account for object-fit: cover cropping.
-    const f = (Math.max(vw, vh) / 2) / Math.tan(half);
-    const s = Math.max(W / vw, H / vh);
-    vfov = 2 * Math.atan((H / s / 2) / f);
-  } else {
-    const f = (Math.max(W, H) / 2) / Math.tan(half);
-    vfov = 2 * Math.atan((H / 2) / f);
-  }
-  camera.fov = deg(vfov);
-  camera.updateProjectionMatrix();
-}
-
+const _v = new THREE.Vector3();
 function apply() {
-  camera.position.set(0, S.camH, 0);
-  camera.rotation.set(-rad(S.camTilt), 0, rad(S.camRoll));
-  updateProjection();
-
-  pivot.position.set(S.posX, S.posY, -S.posZ);
-  pivot.rotation.y = rad(S.rotY);
+  const yaw = anchorYaw;
+  const right = new THREE.Vector3(Math.cos(yaw), 0, -Math.sin(yaw));
+  const toViewer = new THREE.Vector3(Math.sin(yaw), 0, Math.cos(yaw));
+  pivot.position.copy(anchorPos).addScaledVector(right, S.offX).addScaledVector(toViewer, -S.offZ);
+  pivot.position.y = S.offY;
+  pivot.rotation.y = yaw + rad(S.rotY);
   pivot.scale.setScalar(S.size / naturalHeight);
-  floor.position.y = S.posY; // the model stands on a surface at this height (floor = 0, table ≈ 0.75)
-  grid.visible = !!S.grid;
 
-  const az = rad(S.lightAz), el = rad(S.lightEl);
-  const dir = new THREE.Vector3(Math.cos(el) * Math.sin(az), Math.sin(el), Math.cos(el) * Math.cos(az));
+  shadowPlane.position.set(pivot.position.x, S.offY + 0.001, pivot.position.z);
+  shadowPlane.scale.setScalar(Math.max(4, S.size * 6));
+
+  const az = yaw + rad(S.lightAz), el = rad(S.lightEl);
+  _v.set(Math.cos(el) * Math.sin(az), Math.sin(el), Math.cos(el) * Math.cos(az));
   const dist = Math.max(S.size * 4, 6);
   sun.target.position.copy(pivot.position);
-  sun.position.copy(pivot.position).addScaledVector(dir, dist);
+  sun.position.copy(pivot.position).addScaledVector(_v, dist);
   sun.intensity = S.lightInt;
   sun.color.set(S.lightColor);
   const ext = S.size * 1.6 + 0.6;
@@ -368,21 +350,22 @@ function apply() {
 
   hemi.intensity = S.ambInt;
   hemi.color.set(S.ambColor);
-  scene.environmentIntensity = S.envInt;
-  renderer.toneMappingExposure = S.exposure;
   shadowMat.opacity = S.shadowOpacity;
-
-  video.style.filter = `brightness(${S.feedBright}) contrast(${S.feedContrast}) saturate(${S.feedSat})`;
+  if (scene) scene.environmentIntensity = S.envInt;
+  if (renderer) renderer.toneMappingExposure = S.exposure;
   if (mixer) mixer.timeScale = S.playing ? S.animSpeed : 0;
+  if (gain) gain.gain.value = S.volume;
 }
 
 // ---------- Panel ----------
-const controls = {}; // key -> setter that refreshes the UI from S
-let clipSelect, lensSelect;
+const controls = {};
+let clipSelect, camHTimer;
 
 function change(key, v) {
   S[key] = v;
   if (key === 'size') sizeIsSet = true;
+  if (key === 'musicOn') v ? playMusic() : music.pause();
+  if (key === 'camH') { clearTimeout(camHTimer); camHTimer = setTimeout(applyCameraHeight, 600); }
   controls[key]?.(v);
   apply();
   save();
@@ -402,7 +385,6 @@ function rangeRow(it) {
     num.value = (+S[it.key]).toFixed(d);
   });
   const nudge = sign => change(it.key, clamp(+(S[it.key] + sign * it.step).toFixed(d), it.min, it.max));
-  // press-and-hold repeats
   for (const [b, sign] of [[minus, -1], [plus, 1]]) {
     let t1, t2;
     const stop = () => { clearTimeout(t1); clearInterval(t2); };
@@ -416,10 +398,7 @@ function rangeRow(it) {
     el('div', { class: 'top' }, el('label', {}, it.label), el('span', { class: 'val' }, num, el('span', { class: 'unit' }, it.unit || ''))),
     el('div', { class: 'slide' }, minus, range, plus));
 }
-
-function inlineRow(label, control) {
-  return el('div', { class: 'row inline' }, el('label', {}, label), control);
-}
+const inlineRow = (label, control) => el('div', { class: 'row inline' }, el('label', {}, label), control);
 
 function buildItem(it) {
   switch (it.type) {
@@ -441,65 +420,46 @@ function buildItem(it) {
       clipSelect.addEventListener('change', () => { S.clip = clipSelect.value; playClip(); save(); });
       return inlineRow(it.label, clipSelect);
     }
-    case 'lens': {
-      lensSelect = el('select', {}, el('option', {}, 'Default'));
-      lensSelect.addEventListener('change', () => switchLens(lensSelect.value));
-      return inlineRow(it.label, lensSelect);
-    }
     default: return rangeRow(it);
   }
 }
-
 function buildPanel() {
-  const body = $('body');
+  const credit = $('body').firstElementChild;
   for (const sec of DEFS) {
     const d = el('details', { class: 'sec' });
     if (sec.open) d.open = true;
     d.append(el('summary', {}, sec.section), el('div', { class: 'rows' }, ...sec.items.map(buildItem)));
-    body.append(d);
+    $('body').insertBefore(d, credit);
   }
 }
-function refreshUI() { for (const k in controls) controls[k](S[k]); }
+const refreshUI = () => { for (const k in controls) controls[k](S[k]); };
 
 // ---------- Model ----------
 const loader = new GLTFLoader();
-loader.setDRACOLoader(new DRACOLoader().setDecoderPath('https://cdn.jsdelivr.net/npm/three@0.170.0/examples/jsm/libs/draco/gltf/'));
+loader.setDRACOLoader(new DRACOLoader().setDecoderPath('https://cdn.jsdelivr.net/npm/three@0.183.2/examples/jsm/libs/draco/gltf/'));
 loader.setMeshoptDecoder(MeshoptDecoder);
 
 function setModel(gltf, name, isFallback) {
-  if (model) {
-    inner.remove(model);
-    mixer?.stopAllAction();
-    model.traverse(o => { o.geometry?.dispose(); });
-  }
+  if (model) { inner.remove(model); mixer?.stopAllAction(); action = null; }
   model = gltf.scene;
   model.traverse(o => { if (o.isMesh) { o.castShadow = true; o.receiveShadow = true; } });
-
   const box = new THREE.Box3().setFromObject(model);
   const size = box.getSize(new THREE.Vector3()), center = box.getCenter(new THREE.Vector3());
   model.position.set(-center.x, -box.min.y, -center.z);
   inner.add(model);
   naturalHeight = size.y > 1e-6 ? size.y : 1;
-
-  if (!sizeIsSet) {
-    S.size = isFallback ? 1.2 : (naturalHeight >= 0.05 && naturalHeight <= 10 ? +naturalHeight.toFixed(2) : 1);
-  }
+  if (!sizeIsSet) S.size = isFallback ? 1.2 : (naturalHeight >= 0.05 && naturalHeight <= 10 ? +naturalHeight.toFixed(2) : 1);
 
   mixer = new THREE.AnimationMixer(model);
   clips = gltf.animations || [];
   clipSelect.replaceChildren(...(clips.length ? clips.map(c => el('option', { value: c.name }, c.name || '(unnamed)')) : [el('option', {}, 'No animations')]));
   clipSelect.disabled = !clips.length;
-  if (!clips.find(c => c.name === S.clip)) {
-    // prefer something that looks like an idle/dance loop for the demo robot, else the first clip
-    S.clip = (clips.find(c => /dance|idle/i.test(c.name)) || clips[0])?.name || '';
-  }
+  if (!clips.find(c => c.name === S.clip)) S.clip = (clips.find(c => /dance|idle/i.test(c.name)) || clips[0])?.name || '';
   clipSelect.value = S.clip;
   playClip();
-  apply();
-  refreshUI();
+  apply(); refreshUI();
   setStatus(name + (clips.length ? ` · ${clips.length} anim` : ''));
 }
-
 function playClip() {
   if (!mixer) return;
   const clip = clips.find(c => c.name === S.clip);
@@ -510,16 +470,13 @@ function playClip() {
   else action?.stop();
   action = next;
 }
-
 function loadModel(url, name, isFallback = false) {
   return new Promise((resolve, reject) => {
     setStatus('Loading model…');
     loader.load(url, gltf => { setModel(gltf, name, isFallback); resolve(); },
-      e => { if (e.total) setStatus(`Loading ${Math.round(e.loaded / e.total * 100)}%`); },
-      reject);
+      e => { if (e.total) setStatus(`Loading ${Math.round(e.loaded / e.total * 100)}%`); }, reject);
   });
 }
-
 loadModel(MODEL_URL, 'model.glb').catch(() =>
   loadModel(FALLBACK_URL, 'Demo robot (add model.glb)', true).catch(() => setStatus('Model failed to load')));
 
@@ -533,121 +490,252 @@ $('fileIn').onchange = e => {
   e.target.value = '';
 };
 
-// ---------- Camera feed ----------
-let stream = null, started = false, wantCamera = false;
-
-async function openCamera(deviceId) {
-  stream?.getTracks().forEach(t => t.stop());
-  const video_ = deviceId
-    ? { deviceId: { exact: deviceId }, width: { ideal: 1920 }, height: { ideal: 1080 } }
-    : { facingMode: { ideal: 'environment' }, width: { ideal: 1920 }, height: { ideal: 1080 } };
-  stream = await navigator.mediaDevices.getUserMedia({ audio: false, video: video_ });
-  video.srcObject = stream;
-  await video.play().catch(() => {});
-  await listLenses();
-}
-
-async function listLenses() {
-  const devs = (await navigator.mediaDevices.enumerateDevices()).filter(d => d.kind === 'videoinput');
-  const current = stream?.getVideoTracks()[0]?.getSettings().deviceId;
-  lensSelect.replaceChildren(...devs.map((d, i) => el('option', { value: d.deviceId }, d.label || `Camera ${i + 1}`)));
-  if (current) lensSelect.value = current;
-  return devs;
-}
-
-async function switchLens(deviceId) {
-  try {
-    await openCamera(deviceId);
-    S.lens = lensSelect.selectedOptions[0]?.textContent || '';
-    save();
-  } catch (err) { toast('Could not switch camera'); }
-}
-
-async function start(withCamera) {
-  const errEl = $('startErr');
-  wantCamera = withCamera;
-  if (withCamera) {
-    if (!navigator.mediaDevices?.getUserMedia) {
-      errEl.textContent = 'Camera needs HTTPS (GitHub Pages is fine) and a modern browser.';
-      return;
-    }
+// ---------- Music (Web Audio so volume works on iOS) ----------
+const music = $('music');
+music.src = MUSIC_URL;
+let musicMissing = false, audioCtx = null, gain = null;
+music.addEventListener('error', () => { musicMissing = true; });
+function unlockAudio() {
+  if (!audioCtx) {
     try {
-      await openCamera();
-      // restore the previously chosen lens by its label (device IDs can change between sessions)
-      if (S.lens) {
-        const match = [...lensSelect.options].find(o => o.textContent === S.lens);
-        if (match && match.value !== lensSelect.value) { lensSelect.value = match.value; await openCamera(match.value); }
-      }
-    } catch (err) {
-      errEl.textContent = err.name === 'NotAllowedError'
-        ? 'Camera permission was denied. Allow it in the browser settings and reload.'
-        : `Camera error: ${err.message || err.name}`;
-      return;
-    }
+      audioCtx = new (window.AudioContext || window.webkitAudioContext)();
+      gain = audioCtx.createGain();
+      audioCtx.createMediaElementSource(music).connect(gain).connect(audioCtx.destination);
+      gain.gain.value = S.volume;
+    } catch { audioCtx = null; }
   }
-  started = true;
-  $('start').classList.add('gone');
-  document.body.classList.remove('closed');
-  goFullscreen();
-  keepAwake();
+  audioCtx?.resume?.();
 }
-$('startCam').onclick = () => start(true);
-$('startNoCam').onclick = () => start(false);
-
-video.addEventListener('loadedmetadata', updateProjection);
-video.addEventListener('resize', updateProjection);
-addEventListener('resize', updateProjection);
-screen.orientation?.addEventListener?.('change', () => setTimeout(updateProjection, 200));
-
-// ---------- Fullscreen + screen wake ----------
-function goFullscreen() {
-  const d = document.documentElement;
-  (d.requestFullscreen || d.webkitRequestFullscreen)?.call(d, { navigationUI: 'hide' })?.catch?.(() => {});
+function playMusic() {
+  if (musicMissing) { toast('No music.mp3 found — use "Load music…"'); return; }
+  unlockAudio();
+  music.play().catch(() => {});
 }
-$('fsBtn').onclick = () => {
-  if (document.fullscreenElement) document.exitFullscreen();
-  else if (document.documentElement.requestFullscreen) goFullscreen();
-  else toast('On iPhone: Share → Add to Home Screen for fullscreen', 3500);
+$('musicBtn').onclick = () => $('musicIn').click();
+$('musicIn').onchange = e => {
+  const f = e.target.files[0];
+  if (!f) return;
+  musicMissing = false;
+  music.src = URL.createObjectURL(f);
+  if (S.musicOn) playMusic();
+  toast(`Music: ${f.name} (this session only)`);
+  e.target.value = '';
 };
-
-let wakeLock = null;
-async function keepAwake() {
-  try { wakeLock = await navigator.wakeLock?.request('screen'); } catch {}
-}
-document.addEventListener('visibilitychange', async () => {
-  if (document.visibilityState !== 'visible' || !started) return;
-  keepAwake();
-  // iOS can kill the camera track while backgrounded — reopen it
-  const track = stream?.getVideoTracks()[0];
-  if (wantCamera && (!track || track.readyState === 'ended')) {
-    try { await openCamera(lensSelect.value || undefined); } catch {}
-  }
+// iOS pauses audio when the page is hidden — resume when it comes back
+document.addEventListener('visibilitychange', () => {
+  if (document.visibilityState === 'visible' && started && S.musicOn) playMusic();
 });
 
+// ---------- Floor raycasting ----------
+const raycaster = new THREE.Raycaster();
+const floorPlane = new THREE.Plane(new THREE.Vector3(0, 1, 0), 0);
+const _ndc = new THREE.Vector2(), _hit = new THREE.Vector3();
+function floorHit(clientX, clientY) {
+  if (!camera) return null;
+  camera.updateMatrixWorld();
+  _ndc.set((clientX / innerWidth) * 2 - 1, -(clientY / innerHeight) * 2 + 1);
+  raycaster.setFromCamera(_ndc, camera);
+  const p = raycaster.ray.intersectPlane(floorPlane, _hit);
+  // ignore hits behind the camera or absurdly far away (pointing at the horizon)
+  return p && p.distanceTo(camera.position) < 25 ? p.clone() : null;
+}
+function faceViewer(p) {
+  anchorYaw = Math.atan2(camera.position.x - p.x, camera.position.z - p.z);
+}
+function startPlacing() {
+  placing = true;
+  setHud('Point at the floor, then tap to place');
+}
+function place(p) {
+  anchorPos.set(p.x, 0, p.z);
+  faceViewer(p);
+  placing = false;
+  reticle.visible = false;
+  pivot.visible = shadowPlane.visible = true;
+  apply();
+  setHud('');
+  toast('Placed — drag to move, pinch to scale, double-tap to hide controls', 3000);
+}
+
+// ---------- 8th Wall pipeline ----------
+function applyCameraHeight() {
+  if (!started || !window.XR8 || !camera) return;
+  camera.position.set(0, S.camH, 0);
+  XR8.XrController.updateCameraProjectionMatrix({ origin: camera.position, facing: camera.quaternion });
+  XR8.XrController.recenter();
+  startPlacing();
+  toast('Tracking recentered — place the model again');
+}
+
+const scenePipelineModule = () => ({
+  name: 'floorviewer',
+  onStart: ({ canvas }) => {
+    ({ scene, camera, renderer } = XR8.Threejs.xrScene());
+    renderer.shadowMap.enabled = true;
+    renderer.shadowMap.type = THREE.PCFShadowMap;
+    renderer.toneMapping = THREE.ACESFilmicToneMapping;
+    renderer.outputColorSpace = THREE.SRGBColorSpace;
+    try {
+      scene.environment = new THREE.PMREMGenerator(renderer).fromScene(new RoomEnvironment(), 0.04).texture;
+    } catch (e) { console.warn('Environment map unavailable', e); }
+
+    scene.add(hemi, sun, sun.target, shadowPlane, reticle, pivot);
+    pivot.visible = shadowPlane.visible = false;
+
+    // Camera starts at the phone's height above the floor; this sets the scale of the world
+    camera.position.set(0, S.camH, 0);
+    XR8.XrController.updateCameraProjectionMatrix({ origin: camera.position, facing: camera.quaternion });
+
+    canvas.addEventListener('touchmove', e => e.preventDefault(), { passive: false });
+    apply();
+    startPlacing();
+    document.body.classList.remove('closed');
+  },
+  onUpdate: () => {
+    timer.update();
+    mixer?.update(timer.getDelta());
+    if (placing && camera) {
+      // preview the model on the floor under the centre of the screen
+      const p = floorHit(innerWidth / 2, innerHeight / 2);
+      reticle.visible = !!p;
+      pivot.visible = shadowPlane.visible = !!p;
+      if (p) {
+        reticle.position.set(p.x, 0.002, p.z);
+        anchorPos.set(p.x, 0, p.z);
+        faceViewer(p);
+        apply();
+      }
+    }
+  },
+});
+
+let started = false;
+function waitForXR() {
+  return new Promise(res => window.XR8 ? res() : window.addEventListener('xrloaded', res, { once: true }));
+}
+async function start() {
+  if (started) return;
+  started = true;
+  if (S.musicOn) playMusic(); else unlockAudio();   // must happen inside the tap
+  const d = document.documentElement;
+  (d.requestFullscreen || d.webkitRequestFullscreen)?.call(d)?.catch?.(() => {});
+  $('start').classList.add('gone');
+  setHud('Starting camera…');
+  await waitForXR();
+  XR8.addCameraPipelineModules([
+    XR8.GlTextureRenderer.pipelineModule(),      // draws the camera feed
+    XR8.Threejs.pipelineModule(),                // creates the three.js AR scene
+    XR8.XrController.pipelineModule(),           // SLAM world tracking
+    LandingPage.pipelineModule(),                // explains unsupported browsers / desktop
+    XRExtras.FullWindowCanvas.pipelineModule(),  // canvas fills the window
+    XRExtras.Loading.pipelineModule(),           // loading + permission prompts
+    XRExtras.RuntimeError.pipelineModule(),      // shows runtime errors
+    scenePipelineModule(),
+  ]);
+  XR8.run({ canvas: $('camerafeed') });
+}
+$('startBtn').onclick = start;
+
+// ---------- Touch gestures ----------
+const canvas = $('camerafeed');
+let gesture = null, downInfo = null, lastTap = 0;
+const touchesXY = e => [...e.touches].map(t => ({ x: t.clientX, y: t.clientY }));
+
+function beginGesture(pts) {
+  gesture = null;
+  if (placing || S.lockGestures || !model) return;
+  if (pts.length === 1) {
+    const hit = floorHit(pts[0].x, pts[0].y);
+    if (hit) gesture = { type: 'drag', dx: anchorPos.x - hit.x, dz: anchorPos.z - hit.z };
+  } else if (pts.length === 2) {
+    const [a, b] = pts;
+    gesture = { type: 'pinch', d0: Math.hypot(b.x - a.x, b.y - a.y), a0: Math.atan2(b.y - a.y, b.x - a.x), size0: S.size, rot0: S.rotY };
+  }
+}
+canvas.addEventListener('touchstart', e => {
+  const pts = touchesXY(e);
+  if (pts.length === 1) downInfo = { ...pts[0], t: performance.now() };
+  else downInfo = null;
+  beginGesture(pts);
+}, { passive: true });
+canvas.addEventListener('touchmove', e => {
+  if (!gesture) return;
+  const pts = touchesXY(e);
+  if (gesture.type === 'drag' && pts.length === 1) {
+    const hit = floorHit(pts[0].x, pts[0].y);
+    if (!hit) return;
+    anchorPos.set(hit.x + gesture.dx, 0, hit.z + gesture.dz);
+  } else if (gesture.type === 'pinch' && pts.length === 2) {
+    const [a, b] = pts;
+    const d = Math.hypot(b.x - a.x, b.y - a.y), ang = Math.atan2(b.y - a.y, b.x - a.x);
+    S.size = clamp(gesture.size0 * d / gesture.d0, 0.05, 10);
+    sizeIsSet = true;
+    S.rotY = Math.round((((gesture.rot0 - deg(ang - gesture.a0)) + 540) % 360) - 180);
+    queueUI();
+  }
+  apply();
+}, { passive: true });
+canvas.addEventListener('touchend', e => {
+  const t = e.changedTouches[0];
+  if (downInfo && e.touches.length === 0 && t) {
+    const quick = performance.now() - downInfo.t < 280 && Math.hypot(t.clientX - downInfo.x, t.clientY - downInfo.y) < 12;
+    if (quick) {
+      if (placing) {
+        const p = floorHit(t.clientX, t.clientY);
+        if (p) place(p);
+      } else {
+        const now = performance.now();
+        if (now - lastTap < 350) { document.body.classList.toggle('bare'); lastTap = 0; }
+        else lastTap = now;
+      }
+    }
+  }
+  beginGesture(touchesXY(e));
+  if (e.touches.length === 0) downInfo = null;
+}, { passive: true });
+
+let uiQueued = false;
+function queueUI() {
+  if (uiQueued) return;
+  uiQueued = true;
+  requestAnimationFrame(() => { uiQueued = false; refreshUI(); save(); });
+}
+
 // ---------- Panel buttons ----------
+$('moveBtn').onclick = () => { document.body.classList.add('closed'); startPlacing(); };
+$('recenterBtn').onclick = () => {
+  if (!started || !window.XR8) return;
+  XR8.XrController.recenter();
+  startPlacing();
+  toast('Tracking recentered — place the model again');
+};
 $('closeBtn').onclick = () => document.body.classList.add('closed');
 $('showBtn').onclick = () => document.body.classList.remove('closed');
-$('bareBtn').onclick = () => { document.body.classList.add('bare'); toast('Double-tap anywhere to bring the controls back', 3000); };
+$('bareBtn').onclick = () => { document.body.classList.add('bare'); toast('Double-tap to bring the controls back', 3000); };
 $('resetBtn').onclick = () => {
   if (!confirm('Reset all settings to defaults?')) return;
+  const oldH = S.camH;
   Object.assign(S, DEFAULTS);
   sizeIsSet = false;
   if (model) S.size = naturalHeight >= 0.05 && naturalHeight <= 10 ? +naturalHeight.toFixed(2) : 1.2;
   apply(); refreshUI(); save(); playClip();
+  if (S.camH !== oldH) applyCameraHeight();
 };
 $('copyBtn').onclick = async () => {
-  const txt = JSON.stringify(S, null, 2);
+  const txt = JSON.stringify(S);
   try { await navigator.clipboard.writeText(txt); toast('Settings copied'); }
-  catch { prompt('Copy these settings:', JSON.stringify(S)); }
+  catch { prompt('Copy these settings:', txt); }
 };
 $('pasteBtn').onclick = () => {
   const txt = prompt('Paste settings JSON:');
   if (!txt) return;
   try {
     const obj = JSON.parse(txt);
+    const oldH = S.camH;
     for (const k in DEFAULTS) if (k in obj) S[k] = obj[k];
     sizeIsSet = 'size' in obj || sizeIsSet;
     apply(); refreshUI(); save(); playClip();
+    if (S.camH !== oldH) applyCameraHeight();
     toast('Settings applied');
   } catch { toast('That is not valid settings JSON'); }
 };
@@ -656,88 +744,10 @@ addEventListener('keydown', e => {
   if (e.key === 'h') document.body.classList.toggle('bare');
 });
 
-// ---------- Touch gestures ----------
-const pointers = new Map();
-const raycaster = new THREE.Raycaster();
-let gesture = null, uiQueued = false, lastTap = 0, downInfo = null;
-
-function floorHit(x, y) {
-  const ndc = new THREE.Vector2((x / innerWidth) * 2 - 1, -(y / innerHeight) * 2 + 1);
-  raycaster.setFromCamera(ndc, camera);
-  return raycaster.ray.intersectPlane(new THREE.Plane(new THREE.Vector3(0, 1, 0), -S.posY), new THREE.Vector3());
-}
-
-function beginGesture() {
-  gesture = null;
-  if (S.lockGestures || !model) return;
-  const pts = [...pointers.values()];
-  if (pts.length === 1) {
-    const hit = floorHit(pts[0].x, pts[0].y);
-    if (hit) gesture = { type: 'drag', offX: S.posX - hit.x, offZ: S.posZ + hit.z };
-  } else if (pts.length === 2) {
-    const [a, b] = pts;
-    gesture = { type: 'pinch', d0: Math.hypot(b.x - a.x, b.y - a.y), a0: Math.atan2(b.y - a.y, b.x - a.x), size0: S.size, rot0: S.rotY };
-  }
-}
-
-function queueUI() {
-  if (uiQueued) return;
-  uiQueued = true;
-  requestAnimationFrame(() => { uiQueued = false; refreshUI(); save(); });
-}
-
-canvas.addEventListener('pointerdown', e => {
-  canvas.setPointerCapture(e.pointerId);
-  pointers.set(e.pointerId, { x: e.clientX, y: e.clientY });
-  if (pointers.size === 1) downInfo = { x: e.clientX, y: e.clientY, t: performance.now() };
-  beginGesture();
-});
-canvas.addEventListener('pointermove', e => {
-  if (!pointers.has(e.pointerId)) return;
-  pointers.set(e.pointerId, { x: e.clientX, y: e.clientY });
-  if (!gesture) return;
-  const pts = [...pointers.values()];
-  if (gesture.type === 'drag' && pts.length === 1) {
-    const hit = floorHit(pts[0].x, pts[0].y);
-    if (!hit) return;
-    S.posX = clamp(hit.x + gesture.offX, -5, 5);
-    S.posZ = clamp(-hit.z + gesture.offZ, 0.3, 15);
-  } else if (gesture.type === 'pinch' && pts.length === 2) {
-    const [a, b] = pts;
-    const d = Math.hypot(b.x - a.x, b.y - a.y), ang = Math.atan2(b.y - a.y, b.x - a.x);
-    S.size = clamp(gesture.size0 * d / gesture.d0, 0.05, 10);
-    sizeIsSet = true;
-    let r = gesture.rot0 - deg(ang - gesture.a0);
-    r = ((r + 540) % 360) - 180;
-    S.rotY = Math.round(r);
-  }
-  apply();
-  queueUI();
-});
-function endPointer(e) {
-  if (!pointers.delete(e.pointerId)) return;
-  if (pointers.size === 0 && downInfo) {
-    const quick = performance.now() - downInfo.t < 250 && Math.hypot(e.clientX - downInfo.x, e.clientY - downInfo.y) < 12;
-    if (quick) {
-      const now = performance.now();
-      if (now - lastTap < 320 && started) { document.body.classList.toggle('bare'); lastTap = 0; }
-      else lastTap = now;
-    }
-    downInfo = null;
-  }
-  beginGesture();
-}
-canvas.addEventListener('pointerup', endPointer);
-canvas.addEventListener('pointercancel', endPointer);
-
 // ---------- Go ----------
 buildPanel();
 refreshUI();
 apply();
-renderer.setAnimationLoop(() => {
-  mixer?.update(clock.getDelta());
-  renderer.render(scene, camera);
-});
 </script>
 </body>
 </html>

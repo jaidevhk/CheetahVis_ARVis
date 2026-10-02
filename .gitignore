@@ -1,0 +1,4 @@
+# Local-only files — not part of the site
+archive/
+.claude/
+*.xlsx
