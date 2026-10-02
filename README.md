@@ -29,23 +29,39 @@ No build step is needed. Everything loads from CDNs.
 3. **Tap the floor** to place it. Then:
    - one finger: drag the model across the floor
    - two fingers: pinch to scale, twist to rotate
-   - double-tap: hide or show all controls
-4. Open **☰** for precise controls: rotation, size, nudges, animation clip and speed, music volume, sun direction, height and colour, ambient light, reflections, exposure, and shadow darkness and softness.
-5. **Move** places the model again. **Recenter** resets tracking if it drifts.
+   - double-tap: hide or show the controls
+
+### Controls (icons on the right edge)
+
+| Icon | Panel |
+|---|---|
+| Four arrows | **Position & rotation**: rotation, model height, fine nudges, gesture lock, *Place again* |
+| Light bulb | **Light source**: direction, height, intensity and colour, plus ambient light, reflections and exposure. An arrow fades in on the model while you change direction or height, showing where the light comes from. |
+| Ball and shadow | **Shadow**: darkness, softness |
+| Play button | **Animation**: clip, play/pause, speed |
+| Music note | **Music**: on/off, volume, load a track |
+| Crosshair | **Tracking**: phone height above floor, *Recenter tracking* |
+| Cube | **Model & settings**: load a model, copy, paste or reset settings, licence notice |
+| Corner brackets | **Fullscreen** on/off (hidden on iPhone, where Safari doesn't allow it) |
+| Eye | **Hide controls**: leaves a faint outline circle; tap it, or double-tap, to bring them back |
+
+All panels are see-through so they cover as little of the camera view as possible.
 
 ### Getting the scale right
 
-8th Wall works out real-world scale from how high the phone is above the floor. Under **Tracking → Phone height above floor**, enter the real height. About 1.4 m works for handheld use; on a tripod, measure it. Changing the height recenters tracking, so hold the phone still at that height, then place the model again.
+8th Wall works out real-world scale from how high the phone is above the floor. Under **Tracking → Phone height above floor**, enter the real height. About 1.4 m works for handheld use; on a tripod, measure it. Changing the height recenters tracking, so place the model again afterwards.
 
 ### Matching the shadows
 
-Point **Sun direction** the way real shadows fall in the room. 0° means light comes from behind you, toward the model. Then raise or lower **Sun height** until the shadow length matches real objects. Adjust **Shadow darkness** and **Shadow softness** to match.
+Open **Light source** and adjust **Light direction**. The arrow shows where the light comes from, so line it up with the real light in the room. Then change **Light height** until the shadow length matches real objects, and finish with **Shadow → darkness / softness**.
 
-Settings are saved on the phone automatically. **Copy settings** and **Paste settings** let you back them up as text.
+Settings are saved on the device automatically. **Copy settings** and **Paste settings** let you back them up as text.
 
-## Full screen on iPhone
+## Full screen
 
-Safari always shows its own bars. For a cleaner view, use *Share → Add to Home Screen* and launch from the icon.
+**iPad / Android:** the page goes fullscreen when you tap Start AR. The camera permission prompt may exit fullscreen; tap the **fullscreen icon** on the right edge to go back in.
+
+**iPhone:** Safari doesn't allow web pages to go fullscreen, so it always shows its own bars. For a cleaner view, use *Share → Add to Home Screen* and launch from the icon.
 Camera access from home-screen web apps works on recent iOS versions, but test it. If tracking won't start from the icon, use Safari instead.
 
 ## Limitations

@@ -26,13 +26,17 @@
 </script>
 <style>
   :root {
-    --panel-bg: rgba(18, 18, 20, 0.84);
-    --panel-line: rgba(255, 255, 255, 0.09);
-    --text: #f2f2f4;
-    --muted: #9a9aa3;
+    --glass: rgba(8, 8, 10, 0.26);
+    --glass-strong: rgba(8, 8, 10, 0.4);
+    --line: rgba(255, 255, 255, 0.22);
+    --line-soft: rgba(255, 255, 255, 0.12);
+    --text: #ffffff;
+    --muted: rgba(255, 255, 255, 0.72);
     --accent: #4da3ff;
-    --danger: #ff6b6b;
-    --radius: 14px;
+    --danger: #ff8080;
+    --btn: 44px;
+    --gap: 8px;
+    --edge: max(10px, env(safe-area-inset-right));
   }
   * { box-sizing: border-box; -webkit-tap-highlight-color: transparent; }
   html, body {
@@ -41,15 +45,17 @@
     overscroll-behavior: none; -webkit-user-select: none; user-select: none;
   }
   #camerafeed { position: fixed; inset: 0; width: 100%; height: 100%; display: block; touch-action: none; }
+  /* everything floating over the video stays legible without solid backgrounds */
+  #rail, #panel, #hud, #toast { text-shadow: 0 1px 2px rgba(0,0,0,0.85); }
 
-  /* Start screen */
+  /* Start screen (before AR — not over the video) */
   #start {
     position: fixed; inset: 0; z-index: 30; display: grid; place-items: center; padding: 24px;
     background: radial-gradient(ellipse at 50% 35%, #2c2f36, #0e0f12 70%);
   }
   #start.gone { display: none; }
   .card {
-    width: min(390px, 100%); background: var(--panel-bg); border: 1px solid var(--panel-line);
+    width: min(390px, 100%); background: rgba(18,18,20,0.84); border: 1px solid var(--line-soft);
     border-radius: 20px; padding: 24px; text-align: center;
   }
   .card h1 { margin: 0 0 8px; font-size: 20px; font-weight: 650; }
@@ -57,134 +63,119 @@
   .card .small { font-size: 11px; margin: 16px 0 0; }
   .card .small a { color: var(--muted); }
   .btn {
-    appearance: none; border: 0; border-radius: 10px; padding: 10px 14px; font: inherit; font-weight: 600;
-    background: rgba(255, 255, 255, 0.1); color: var(--text); cursor: pointer;
+    appearance: none; border: 1px solid var(--line); border-radius: 10px; padding: 9px 12px;
+    font: inherit; font-weight: 600; background: var(--glass); color: var(--text); cursor: pointer;
+    text-shadow: inherit;
   }
   .btn:active { transform: scale(0.97); }
-  .btn.primary { background: var(--accent); color: #031426; width: 100%; padding: 14px; font-size: 16px; }
+  .btn.primary { background: var(--accent); border-color: var(--accent); color: #031426; width: 100%; padding: 14px; font-size: 16px; text-shadow: none; }
+  .btn.warn { color: var(--danger); }
 
-  /* HUD prompt */
-  #hud {
-    position: fixed; z-index: 15; left: 50%; top: max(18px, env(safe-area-inset-top)); transform: translateX(-50%);
-    background: rgba(0,0,0,0.6); padding: 9px 16px; border-radius: 999px; font-size: 14px; white-space: nowrap;
-    pointer-events: none;
+  /* HUD prompt + toast */
+  #hud, #toast {
+    position: fixed; z-index: 15; left: 50%; transform: translateX(-50%);
+    background: var(--glass); border: 1px solid var(--line-soft);
+    padding: 8px 15px; border-radius: 999px; white-space: nowrap; pointer-events: none;
   }
+  #hud { top: max(16px, env(safe-area-inset-top)); font-size: 14px; }
   #hud:empty { display: none; }
+  #toast { z-index: 40; bottom: max(24px, env(safe-area-inset-bottom)); font-size: 13px; opacity: 0; transition: opacity .2s; }
+  #toast.on { opacity: 1; }
 
-  /* Panel */
+  /* Icon rail */
+  #rail {
+    position: fixed; z-index: 20; right: var(--edge); top: 50%; transform: translateY(-50%);
+    display: flex; flex-direction: column; gap: var(--gap);
+  }
+  .icon {
+    width: var(--btn); height: var(--btn); border-radius: 50%; padding: 0; display: grid; place-items: center;
+    background: var(--glass); border: 1px solid var(--line); color: var(--text); cursor: pointer;
+    transition: border-color .15s, color .15s, background .15s;
+  }
+  .icon svg {
+    width: 22px; height: 22px; fill: none; stroke: currentColor; stroke-width: 1.8;
+    stroke-linecap: round; stroke-linejoin: round; filter: drop-shadow(0 1px 1.5px rgba(0,0,0,0.8));
+  }
+  .icon.active { border-color: var(--accent); color: var(--accent); background: var(--glass-strong); }
+  .icon:active { transform: scale(0.94); }
+  .rail-gap { height: 4px; }
+
+  /* Restore circle shown when the UI is hidden */
+  #restore {
+    position: fixed; z-index: 20; right: calc(var(--edge) + (var(--btn) - 26px) / 2); top: 50%; transform: translateY(-50%);
+    width: 26px; height: 26px; border-radius: 50%; padding: 0; background: transparent;
+    border: 1.5px solid rgba(255, 255, 255, 0.35); display: none; cursor: pointer;
+  }
+  #restore::before { content: ""; position: absolute; inset: -12px; } /* bigger tap target, same look */
+
+  /* Flyout panel */
   #panel {
-    position: fixed; z-index: 20; display: flex; flex-direction: column;
-    background: var(--panel-bg); border: 1px solid var(--panel-line); border-radius: var(--radius);
-    backdrop-filter: blur(14px); -webkit-backdrop-filter: blur(14px);
-    top: max(12px, env(safe-area-inset-top)); bottom: max(12px, env(safe-area-inset-bottom));
-    right: max(12px, env(safe-area-inset-right)); width: 330px;
+    position: fixed; z-index: 20; display: none;
+    right: calc(var(--edge) + var(--btn) + 10px); top: 50%; transform: translateY(-50%);
+    width: min(300px, calc(100vw - var(--btn) - 40px)); max-height: min(80vh, 600px); overflow-y: auto;
+    background: var(--glass); border: 1px solid var(--line); border-radius: 14px; padding: 12px 14px 14px;
+    -webkit-overflow-scrolling: touch;
   }
-  @media (max-aspect-ratio: 1/1) {
-    #panel {
-      top: auto; left: max(8px, env(safe-area-inset-left)); right: max(8px, env(safe-area-inset-right));
-      width: auto; height: 44vh; bottom: max(8px, env(safe-area-inset-bottom));
-    }
-  }
-  .head { display: flex; align-items: center; gap: 6px; padding: 10px 10px 10px 14px; border-bottom: 1px solid var(--panel-line); }
-  .head .title { font-weight: 650; flex: 1; min-width: 0; }
-  .head .status { color: var(--muted); font-size: 12px; font-weight: 400; display: block;
-    white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
-  .head .btn { padding: 7px 10px; font-size: 13px; flex: none; }
-  .body { overflow-y: auto; flex: 1; padding: 4px 0 8px; -webkit-overflow-scrolling: touch; }
-  details.sec { border-bottom: 1px solid var(--panel-line); }
-  details.sec > summary {
-    list-style: none; cursor: pointer; padding: 12px 14px; font-weight: 600;
-    display: flex; justify-content: space-between; align-items: center;
-  }
-  details.sec > summary::-webkit-details-marker { display: none; }
-  details.sec > summary::after { content: "›"; color: var(--muted); font-size: 18px; transition: transform .15s; }
-  details.sec[open] > summary::after { transform: rotate(90deg); }
-  .rows { padding: 0 14px 10px; display: grid; gap: 12px; }
-  .row .top { display: flex; align-items: baseline; justify-content: space-between; gap: 8px; margin-bottom: 4px; }
+  #panel.open { display: block; }
+  .ptitle { display: flex; align-items: center; justify-content: space-between; margin: 0 0 10px; font-weight: 650; font-size: 15px; }
+  .ptitle button { background: none; border: 0; color: var(--muted); font-size: 18px; padding: 2px 6px; cursor: pointer; text-shadow: inherit; }
+  .rows { display: grid; gap: 12px; }
+  .row .top { display: flex; align-items: baseline; justify-content: space-between; gap: 8px; margin-bottom: 3px; }
   .row label { color: var(--muted); font-size: 13px; }
   .row .val { display: flex; align-items: baseline; gap: 3px; }
   .row .unit { color: var(--muted); font-size: 12px; min-width: 10px; }
   .num {
-    width: 68px; text-align: right; font: inherit; font-variant-numeric: tabular-nums; color: var(--text);
-    background: rgba(255,255,255,0.06); border: 1px solid transparent; border-radius: 6px; padding: 2px 6px;
-    -webkit-user-select: text; user-select: text;
+    width: 66px; text-align: right; font: inherit; font-variant-numeric: tabular-nums; color: var(--text);
+    background: rgba(0,0,0,0.25); border: 1px solid var(--line-soft); border-radius: 6px; padding: 2px 6px;
+    -webkit-user-select: text; user-select: text; text-shadow: inherit;
   }
   .num:focus { outline: none; border-color: var(--accent); }
   .num::-webkit-inner-spin-button { display: none; }
   .slide { display: flex; align-items: center; gap: 8px; }
   .slide input[type=range] { flex: 1; accent-color: var(--accent); height: 28px; margin: 0; }
   .nudge {
-    width: 30px; height: 30px; flex: none; border-radius: 8px; border: 0; font: 600 16px/1 inherit;
-    background: rgba(255,255,255,0.08); color: var(--text); touch-action: manipulation;
+    width: 30px; height: 30px; flex: none; border-radius: 8px; border: 1px solid var(--line-soft);
+    font: 600 16px/1 inherit; background: rgba(0,0,0,0.2); color: var(--text); touch-action: manipulation; text-shadow: inherit;
   }
   .nudge:active { background: rgba(255,255,255,0.18); }
   .inline { display: flex; align-items: center; justify-content: space-between; gap: 10px; }
   select, input[type=color] {
-    font: inherit; color: var(--text); background: rgba(255,255,255,0.08); border: 0; border-radius: 8px;
-    padding: 6px 8px; max-width: 190px;
+    font: inherit; color: var(--text); background: rgba(0,0,0,0.3); border: 1px solid var(--line-soft); border-radius: 8px;
+    padding: 6px 8px; max-width: 170px;
   }
   input[type=color] { width: 56px; height: 32px; padding: 2px; }
   .switch { position: relative; width: 44px; height: 26px; flex: none; }
   .switch input { opacity: 0; width: 100%; height: 100%; margin: 0; position: absolute; z-index: 1; }
-  .switch span { position: absolute; inset: 0; border-radius: 13px; background: rgba(255,255,255,0.16); transition: background .15s; }
+  .switch span { position: absolute; inset: 0; border-radius: 13px; background: rgba(255,255,255,0.22); transition: background .15s; }
   .switch span::after { content: ""; position: absolute; top: 3px; left: 3px; width: 20px; height: 20px; border-radius: 50%; background: #fff; transition: transform .15s; }
   .switch input:checked + span { background: var(--accent); }
   .switch input:checked + span::after { transform: translateX(18px); }
   .hint { color: var(--muted); font-size: 12px; margin: -4px 0 0; }
-  .credit { color: var(--muted); font-size: 11px; padding: 8px 14px 0; }
+  .btns { display: flex; flex-wrap: wrap; gap: 6px; }
+  .btns .btn { flex: 1 1 auto; font-size: 13px; }
+  .status { color: var(--muted); font-size: 12px; margin: -4px 0 0; }
+  .credit { color: var(--muted); font-size: 11px; margin: 0; }
   .credit a { color: var(--muted); }
-  .foot { display: flex; flex-wrap: wrap; gap: 6px; padding: 10px; border-top: 1px solid var(--panel-line); }
-  .foot .btn { flex: 1 1 auto; font-size: 13px; padding: 9px 8px; }
-  .foot .btn.warn { color: var(--danger); }
-  @media (max-aspect-ratio: 1/1) {
-    .foot { flex-wrap: nowrap; overflow-x: auto; }
-    .foot .btn { flex: none; }
+
+  /* short screens (phone in landscape): smaller icons so the rail fits */
+  @media (max-height: 520px) {
+    :root { --btn: 36px; --gap: 5px; }
+    .icon svg { width: 19px; height: 19px; }
+    #panel { max-height: calc(100vh - 20px); }
   }
 
-  #showBtn {
-    position: fixed; z-index: 20; width: 44px; height: 44px; border-radius: 50%; border: 0;
-    right: max(14px, env(safe-area-inset-right)); bottom: max(14px, env(safe-area-inset-bottom));
-    background: rgba(0,0,0,0.35); color: rgba(255,255,255,0.75); font-size: 20px; display: none;
-  }
-  body.closed #panel { display: none; }
-  body.closed #showBtn { display: block; }
-  body.bare #panel, body.bare #showBtn { display: none; }
-
-  #toast {
-    position: fixed; z-index: 40; left: 50%; bottom: 50%; transform: translate(-50%, 8px);
-    background: rgba(0,0,0,0.8); padding: 9px 14px; border-radius: 999px; font-size: 13px;
-    opacity: 0; transition: opacity .2s, transform .2s; pointer-events: none; white-space: nowrap;
-  }
-  #toast.on { opacity: 1; transform: translate(-50%, 0); }
+  body.pre #rail, body.pre #panel { display: none; }
+  body.bare #rail, body.bare #panel { display: none; }
+  body.bare #restore { display: block; }
   input[type=file] { display: none; }
 </style>
 </head>
-<body class="closed">
+<body class="pre">
 <canvas id="camerafeed"></canvas>
 <div id="hud"></div>
-
-<aside id="panel">
-  <div class="head">
-    <div class="title">Controls<span class="status" id="status">Loading model…</span></div>
-    <button class="btn" id="moveBtn">Move</button>
-    <button class="btn" id="bareBtn" title="Hide everything — double-tap to bring back">Hide all</button>
-    <button class="btn" id="closeBtn" aria-label="Close panel">✕</button>
-  </div>
-  <div class="body" id="body">
-    <p class="credit">AR tracking: 8th Wall Engine © Niantic Spatial, Inc. Used under the
-      <a href="https://github.com/8thwall/engine/blob/main/LICENSE" target="_blank" rel="noopener">8th Wall Engine Binary License</a>,
-      provided “as is” without warranty. Not affiliated with or endorsed by Niantic Spatial.</p>
-  </div>
-  <div class="foot">
-    <button class="btn" id="recenterBtn">Recenter</button>
-    <button class="btn" id="loadBtn">Load model…</button>
-    <button class="btn" id="musicBtn">Load music…</button>
-    <button class="btn" id="copyBtn">Copy settings</button>
-    <button class="btn" id="pasteBtn">Paste settings</button>
-    <button class="btn warn" id="resetBtn">Reset</button>
-  </div>
-</aside>
-<button id="showBtn" aria-label="Show controls">☰</button>
+<nav id="rail" aria-label="Controls"></nav>
+<section id="panel" aria-live="polite"></section>
+<button id="restore" aria-label="Show controls"></button>
 <div id="toast"></div>
 
 <div id="start">
@@ -215,49 +206,74 @@ const MODEL_URL = 'model.glb';   // your animated model, next to index.html
 const MUSIC_URL = 'music.mp3';   // your music track, next to index.html
 const FALLBACK_URL = 'https://cdn.jsdelivr.net/gh/mrdoob/three.js@r170/examples/models/gltf/RobotExpressive/RobotExpressive.glb';
 const STORE_KEY = 'ar-8thwall-settings-v1';
+const LICENCE_URL = 'https://github.com/8thwall/engine/blob/main/LICENSE';
 
-const DEFS = [
-  { section: 'Placement', open: true, items: [
+const ICONS = {
+  place: '<path d="M12 3v18M3 12h18M12 3 9.5 5.5M12 3l2.5 2.5M12 21l-2.5-2.5M12 21l2.5-2.5M3 12l2.5-2.5M3 12l2.5 2.5M21 12l-2.5-2.5M21 12l-2.5 2.5"/>',
+  light: '<path d="M9 18h6M10 21h4"/><path d="M12 3a6 6 0 0 0-3.6 10.8c.7.5 1.1 1.3 1.1 2.1V16h5v-.1c0-.8.4-1.6 1.1-2.1A6 6 0 0 0 12 3z"/>',
+  shadow: '<circle cx="12" cy="9" r="5"/><ellipse cx="12" cy="19.5" rx="7.5" ry="2" fill="currentColor" fill-opacity=".35"/>',
+  anim: '<rect x="3" y="5" width="18" height="14" rx="2.5"/><path d="M10 9.3v5.4l4.6-2.7z"/>',
+  music: '<path d="M9 18V5.5l11-2V16"/><circle cx="6.5" cy="18" r="2.5"/><circle cx="17.5" cy="16" r="2.5"/>',
+  track: '<circle cx="12" cy="12" r="7"/><circle cx="12" cy="12" r="1.6"/><path d="M12 2v3M12 19v3M2 12h3M19 12h3"/>',
+  model: '<path d="M12 2.5l8.5 4.8v9.4L12 21.5l-8.5-4.8V7.3z"/><path d="M12 21.5V12M20.5 7.3 12 12 3.5 7.3"/>',
+  fsEnter: '<path d="M4 9V4h5M20 9V4h-5M4 15v5h5M20 15v5h-5"/>',
+  fsExit: '<path d="M9 4v5H4M15 4v5h5M9 20v-5H4M15 20v-5h5"/>',
+  eye: '<path d="M2 12s3.6-7 10-7 10 7 10 7-3.6 7-10 7S2 12 2 12z"/><circle cx="12" cy="12" r="3"/>',
+};
+
+// Each entry is one icon in the rail and one flyout panel.
+const PANELS = [
+  { id: 'place', title: 'Position & rotation', items: [
     { key: 'rotY', label: 'Rotation', min: -180, max: 180, step: 1, def: 0, unit: '°' },
     { key: 'size', label: 'Model height', min: 0.05, max: 10, step: 0.01, def: 1.2, unit: 'm' },
     { key: 'offX', label: 'Nudge left / right', min: -1, max: 1, step: 0.005, def: 0, unit: 'm' },
     { key: 'offZ', label: 'Nudge closer / further', min: -1, max: 1, step: 0.005, def: 0, unit: 'm' },
     { key: 'offY', label: 'Nudge up / down', min: -0.3, max: 0.3, step: 0.002, def: 0, unit: 'm' },
     { type: 'toggle', key: 'lockGestures', label: 'Lock touch gestures', def: false },
-    { type: 'hint', text: 'Tap the floor to place. Then: drag to move, pinch to scale, twist to rotate. Rotation 0 faces where you placed it from.' },
+    { type: 'buttons', buttons: [{ id: 'placeBtn', label: 'Place again' }] },
+    { type: 'hint', text: 'Drag to move, pinch to scale, twist to rotate. Rotation 0 faces where you placed it from.' },
   ]},
-  { section: 'Tracking', items: [
-    { key: 'camH', label: 'Phone height above floor', min: 0.2, max: 3, step: 0.01, def: 1.4, unit: 'm' },
-    { type: 'hint', text: 'Sets the real-world scale: measure how high the phone is held or mounted. Changing it recenters tracking — hold the phone still at that height, then place the model again.' },
-  ]},
-  { section: 'Animation', items: [
-    { type: 'clip', key: 'clip', label: 'Clip' },
-    { type: 'toggle', key: 'playing', label: 'Playing', def: true },
-    { key: 'animSpeed', label: 'Speed', min: 0, max: 3, step: 0.05, def: 1, unit: '×' },
-  ]},
-  { section: 'Music', items: [
-    { type: 'toggle', key: 'musicOn', label: 'Play music (loops)', def: true },
-    { key: 'volume', label: 'Volume', min: 0, max: 1, step: 0.01, def: 0.7 },
-  ]},
-  { section: 'Lighting', items: [
-    { key: 'lightAz', label: 'Sun direction (0 = from viewer)', min: -180, max: 180, step: 1, def: 35, unit: '°' },
-    { key: 'lightEl', label: 'Sun height', min: 3, max: 90, step: 1, def: 50, unit: '°' },
-    { key: 'lightInt', label: 'Sun intensity', min: 0, max: 10, step: 0.05, def: 2.5 },
-    { type: 'color', key: 'lightColor', label: 'Sun colour', def: '#fff4e5' },
+  { id: 'light', title: 'Light source', items: [
+    { key: 'lightAz', label: 'Light direction (0 = from viewer)', min: -180, max: 180, step: 1, def: 35, unit: '°' },
+    { key: 'lightEl', label: 'Light height', min: 3, max: 90, step: 1, def: 50, unit: '°' },
+    { key: 'lightInt', label: 'Light intensity', min: 0, max: 10, step: 0.05, def: 2.5 },
+    { type: 'color', key: 'lightColor', label: 'Light colour', def: '#fff4e5' },
     { key: 'ambInt', label: 'Ambient light', min: 0, max: 3, step: 0.05, def: 0.4 },
     { type: 'color', key: 'ambColor', label: 'Ambient colour', def: '#dfe8ff' },
     { key: 'envInt', label: 'Reflections', min: 0, max: 3, step: 0.05, def: 0.8 },
     { key: 'exposure', label: 'Exposure', min: 0.2, max: 3, step: 0.01, def: 1 },
-    { type: 'hint', text: 'Match real shadows: point the sun the way real shadows fall, then set its height until the shadow lengths match.' },
+    { type: 'hint', text: 'An arrow shows where the light comes from while you adjust direction or height. Point it the way real shadows fall.' },
   ]},
-  { section: 'Shadow', items: [
+  { id: 'shadow', title: 'Shadow', items: [
     { key: 'shadowOpacity', label: 'Shadow darkness', min: 0, max: 1, step: 0.01, def: 0.45 },
     { key: 'shadowSoft', label: 'Shadow softness', min: 0, max: 12, step: 0.1, def: 3 },
+  ]},
+  { id: 'anim', title: 'Animation', items: [
+    { type: 'clip', key: 'clip', label: 'Clip' },
+    { type: 'toggle', key: 'playing', label: 'Playing', def: true },
+    { key: 'animSpeed', label: 'Speed', min: 0, max: 3, step: 0.05, def: 1, unit: '×' },
+  ]},
+  { id: 'music', title: 'Music', items: [
+    { type: 'toggle', key: 'musicOn', label: 'Play music (loops)', def: true },
+    { key: 'volume', label: 'Volume', min: 0, max: 1, step: 0.01, def: 0.7 },
+    { type: 'buttons', buttons: [{ id: 'musicBtn', label: 'Load music…' }] },
+  ]},
+  { id: 'track', title: 'Tracking', items: [
+    { key: 'camH', label: 'Phone height above floor', min: 0.2, max: 3, step: 0.01, def: 1.4, unit: 'm' },
+    { type: 'buttons', buttons: [{ id: 'recenterBtn', label: 'Recenter tracking' }] },
+    { type: 'hint', text: 'Sets the real-world scale: measure how high the phone is held or mounted. Changing it recenters tracking, so place the model again afterwards.' },
+  ]},
+  { id: 'model', title: 'Model & settings', items: [
+    { type: 'status' },
+    { type: 'buttons', buttons: [
+      { id: 'loadBtn', label: 'Load model…' }, { id: 'copyBtn', label: 'Copy settings' },
+      { id: 'pasteBtn', label: 'Paste settings' }, { id: 'resetBtn', label: 'Reset', warn: true }] },
+    { type: 'credit' },
   ]},
 ];
 
 const DEFAULTS = { clip: '' };
-for (const s of DEFS) for (const it of s.items) if (it.key && 'def' in it) DEFAULTS[it.key] = it.def;
+for (const p of PANELS) for (const it of p.items) if (it.key && 'def' in it) DEFAULTS[it.key] = it.def;
 
 // ---------- Settings ----------
 let stored = {};
@@ -279,6 +295,7 @@ function el(tag, attrs = {}, ...kids) {
   n.append(...kids);
   return n;
 }
+const svg = name => `<svg viewBox="0 0 24 24" aria-hidden="true">${ICONS[name]}</svg>`;
 const clamp = (v, a, b) => Math.min(b, Math.max(a, v));
 const rad = THREE.MathUtils.degToRad, deg = THREE.MathUtils.radToDeg;
 const decimals = step => step < 1 ? (String(step).split('.')[1] || '').length : 0;
@@ -287,7 +304,8 @@ function toast(msg, ms = 2200) {
   const t = $('toast'); t.textContent = msg; t.classList.add('on');
   clearTimeout(toastTimer); toastTimer = setTimeout(() => t.classList.remove('on'), ms);
 }
-const setStatus = msg => { $('status').textContent = msg; };
+let statusText = 'Loading model…';
+const setStatus = msg => { statusText = msg; const s = $('status'); if (s) s.textContent = msg; };
 const setHud = msg => { $('hud').textContent = msg; };
 
 // ---------- Scene content (added to the 8th Wall scene once it starts) ----------
@@ -310,6 +328,19 @@ reticle.add(
   new THREE.Mesh(new THREE.CircleGeometry(0.015, 24).rotateX(-Math.PI / 2), new THREE.MeshBasicMaterial({ color: 0xffffff })));
 reticle.visible = false;
 
+// Light-direction arrow: a glowing ball at the light source with an arrow pointing at the model.
+// Built along +Y (ball at origin, tip at the top) and rotated to point down the light's path.
+const arrowMat = new THREE.MeshBasicMaterial({ color: 0xffd36b, transparent: true, opacity: 0, depthTest: false, depthWrite: false });
+const arrowShaft = new THREE.Mesh(new THREE.CylinderGeometry(0.012, 0.012, 1, 12), arrowMat);
+const arrowHead = new THREE.Mesh(new THREE.ConeGeometry(0.045, 0.13, 20), arrowMat);
+const arrowBall = new THREE.Mesh(new THREE.SphereGeometry(0.06, 20, 14), arrowMat);
+const lightArrow = new THREE.Group();
+lightArrow.add(arrowShaft, arrowHead, arrowBall);
+lightArrow.traverse(o => { o.renderOrder = 999; });
+lightArrow.visible = false;
+let lightTouchedAt = -Infinity;
+const ARROW_HOLD_MS = 1200;
+
 const pivot = new THREE.Group();
 const inner = new THREE.Group();
 pivot.add(inner);
@@ -323,7 +354,7 @@ let anchorYaw = 0;
 let placing = true;
 
 // ---------- Apply settings ----------
-const _v = new THREE.Vector3();
+const _v = new THREE.Vector3(), _t = new THREE.Vector3(), _q = new THREE.Quaternion(), _down = new THREE.Vector3(), UP = new THREE.Vector3(0, 1, 0);
 function apply() {
   const yaw = anchorYaw;
   const right = new THREE.Vector3(Math.cos(yaw), 0, -Math.sin(yaw));
@@ -337,7 +368,7 @@ function apply() {
   shadowPlane.scale.setScalar(Math.max(4, S.size * 6));
 
   const az = yaw + rad(S.lightAz), el = rad(S.lightEl);
-  _v.set(Math.cos(el) * Math.sin(az), Math.sin(el), Math.cos(el) * Math.cos(az));
+  _v.set(Math.cos(el) * Math.sin(az), Math.sin(el), Math.cos(el) * Math.cos(az)); // from model towards the light
   const dist = Math.max(S.size * 4, 6);
   sun.target.position.copy(pivot.position);
   sun.position.copy(pivot.position).addScaledVector(_v, dist);
@@ -347,6 +378,7 @@ function apply() {
   Object.assign(sun.shadow.camera, { left: -ext, right: ext, top: ext, bottom: -ext, near: 0.1, far: dist * 2 });
   sun.shadow.camera.updateProjectionMatrix();
   sun.shadow.radius = S.shadowSoft;
+  updateLightArrow();
 
   hemi.intensity = S.ambInt;
   hemi.color.set(S.ambColor);
@@ -357,15 +389,34 @@ function apply() {
   if (gain) gain.gain.value = S.volume;
 }
 
-// ---------- Panel ----------
+function updateLightArrow() {
+  // aim at the middle of the model, starting out where the light comes from
+  _t.copy(pivot.position); _t.y += S.size * 0.5;
+  const k = clamp(S.size / 1.2, 0.5, 3);              // thicker arrow for bigger models
+  const far = S.size * 0.9 + 0.7, near = S.size * 0.35 + 0.15;
+  const len = far - near, headLen = 0.13 * k;
+  lightArrow.position.copy(_t).addScaledVector(_v, far);
+  _down.copy(_v).negate();
+  lightArrow.quaternion.copy(_q.setFromUnitVectors(UP, _down));
+  lightArrow.scale.setScalar(1);
+  arrowBall.scale.setScalar(k);
+  arrowShaft.scale.set(k, Math.max(0.01, len - headLen), k);
+  arrowShaft.position.y = (len - headLen) / 2;
+  arrowHead.scale.setScalar(k);
+  arrowHead.position.y = len - headLen / 2;
+  arrowMat.color.set(S.lightColor).lerp(new THREE.Color(0xffd36b), 0.5);
+}
+
+// ---------- Panels ----------
 const controls = {};
-let clipSelect, camHTimer;
+let clipSelect, camHTimer, openPanel = null;
 
 function change(key, v) {
   S[key] = v;
   if (key === 'size') sizeIsSet = true;
   if (key === 'musicOn') v ? playMusic() : music.pause();
   if (key === 'camH') { clearTimeout(camHTimer); camHTimer = setTimeout(applyCameraHeight, 600); }
+  if (key === 'lightAz' || key === 'lightEl') lightTouchedAt = performance.now();
   controls[key]?.(v);
   apply();
   save();
@@ -403,6 +454,15 @@ const inlineRow = (label, control) => el('div', { class: 'row inline' }, el('lab
 function buildItem(it) {
   switch (it.type) {
     case 'hint': return el('p', { class: 'hint' }, it.text);
+    case 'status': { const p = el('p', { class: 'status', id: 'status' }, statusText); return p; }
+    case 'credit': {
+      const p = el('p', { class: 'credit' }, 'AR tracking: 8th Wall Engine © Niantic Spatial, Inc. Used under the ');
+      p.append(el('a', { href: LICENCE_URL, target: '_blank', rel: 'noopener' }, '8th Wall Engine Binary License'),
+        ', provided “as is” without warranty. Not affiliated with or endorsed by Niantic Spatial.');
+      return p;
+    }
+    case 'buttons':
+      return el('div', { class: 'btns' }, ...it.buttons.map(b => el('button', { class: 'btn' + (b.warn ? ' warn' : ''), id: b.id, type: 'button' }, b.label)));
     case 'toggle': {
       const cb = el('input', { type: 'checkbox' });
       controls[it.key] = v => { cb.checked = !!v; };
@@ -423,16 +483,66 @@ function buildItem(it) {
     default: return rangeRow(it);
   }
 }
-function buildPanel() {
-  const credit = $('body').firstElementChild;
-  for (const sec of DEFS) {
-    const d = el('details', { class: 'sec' });
-    if (sec.open) d.open = true;
-    d.append(el('summary', {}, sec.section), el('div', { class: 'rows' }, ...sec.items.map(buildItem)));
-    $('body').insertBefore(d, credit);
+
+const panelBodies = {}, railButtons = {};
+function buildUI() {
+  const rail = $('rail'), panel = $('panel');
+  for (const p of PANELS) {
+    const close = el('button', { type: 'button', 'aria-label': 'Close' }, '✕');
+    close.onclick = () => showPanel(null);
+    panelBodies[p.id] = el('div', {}, el('div', { class: 'ptitle' }, el('span', {}, p.title), close),
+      el('div', { class: 'rows' }, ...p.items.map(buildItem)));
+    const b = el('button', { class: 'icon', type: 'button', 'aria-label': p.title, title: p.title });
+    b.innerHTML = svg(p.id);
+    b.onclick = () => showPanel(openPanel === p.id ? null : p.id);
+    railButtons[p.id] = b;
+    rail.append(b);
   }
+  rail.append(el('div', { class: 'rail-gap' }));
+
+  const fs = el('button', { class: 'icon', type: 'button', id: 'fsBtn', 'aria-label': 'Toggle fullscreen', title: 'Fullscreen' });
+  fs.innerHTML = svg('fsEnter');
+  fs.onclick = toggleFullscreen;
+  if (!fullscreenSupported()) fs.style.display = 'none';
+  const eye = el('button', { class: 'icon', type: 'button', id: 'eyeBtn', 'aria-label': 'Hide controls', title: 'Hide controls' });
+  eye.innerHTML = svg('eye');
+  eye.onclick = () => setBare(true);
+  rail.append(fs, eye);
+  panel.replaceChildren();
+}
+function showPanel(id) {
+  openPanel = id;
+  for (const k in railButtons) railButtons[k].classList.toggle('active', k === id);
+  const panel = $('panel');
+  panel.replaceChildren(...(id ? [panelBodies[id]] : []));
+  panel.classList.toggle('open', !!id);
+}
+function setBare(on) {
+  document.body.classList.toggle('bare', on);
+  if (on) toast('Tap the circle or double-tap to show controls', 2500);
 }
 const refreshUI = () => { for (const k in controls) controls[k](S[k]); };
+
+// ---------- Fullscreen ----------
+const fsElement = () => document.fullscreenElement || document.webkitFullscreenElement;
+function fullscreenSupported() {
+  const d = document.documentElement;
+  return !!(document.fullscreenEnabled || document.webkitFullscreenEnabled) && !!(d.requestFullscreen || d.webkitRequestFullscreen);
+}
+function enterFullscreen() {
+  const d = document.documentElement;
+  try { (d.requestFullscreen || d.webkitRequestFullscreen).call(d)?.catch?.(() => {}); } catch {}
+}
+function toggleFullscreen() {
+  if (fsElement()) (document.exitFullscreen || document.webkitExitFullscreen).call(document)?.catch?.(() => {});
+  else enterFullscreen();
+}
+function onFullscreenChange() {
+  const b = $('fsBtn');
+  if (b) { b.innerHTML = svg(fsElement() ? 'fsExit' : 'fsEnter'); b.classList.toggle('active', !!fsElement()); }
+}
+document.addEventListener('fullscreenchange', onFullscreenChange);
+document.addEventListener('webkitfullscreenchange', onFullscreenChange);
 
 // ---------- Model ----------
 const loader = new GLTFLoader();
@@ -458,7 +568,7 @@ function setModel(gltf, name, isFallback) {
   clipSelect.value = S.clip;
   playClip();
   apply(); refreshUI();
-  setStatus(name + (clips.length ? ` · ${clips.length} anim` : ''));
+  setStatus(name + (clips.length ? ` · ${clips.length} animations` : ''));
 }
 function playClip() {
   if (!mixer) return;
@@ -477,18 +587,6 @@ function loadModel(url, name, isFallback = false) {
       e => { if (e.total) setStatus(`Loading ${Math.round(e.loaded / e.total * 100)}%`); }, reject);
   });
 }
-loadModel(MODEL_URL, 'model.glb').catch(() =>
-  loadModel(FALLBACK_URL, 'Demo robot (add model.glb)', true).catch(() => setStatus('Model failed to load')));
-
-$('loadBtn').onclick = () => $('fileIn').click();
-$('fileIn').onchange = e => {
-  const f = e.target.files[0];
-  if (!f) return;
-  const url = URL.createObjectURL(f);
-  loadModel(url, f.name).then(() => toast(`Loaded ${f.name} (this session only)`))
-    .catch(() => toast('Could not read that file — use a .glb')).finally(() => URL.revokeObjectURL(url));
-  e.target.value = '';
-};
 
 // ---------- Music (Web Audio so volume works on iOS) ----------
 const music = $('music');
@@ -511,16 +609,6 @@ function playMusic() {
   unlockAudio();
   music.play().catch(() => {});
 }
-$('musicBtn').onclick = () => $('musicIn').click();
-$('musicIn').onchange = e => {
-  const f = e.target.files[0];
-  if (!f) return;
-  musicMissing = false;
-  music.src = URL.createObjectURL(f);
-  if (S.musicOn) playMusic();
-  toast(`Music: ${f.name} (this session only)`);
-  e.target.value = '';
-};
 // iOS pauses audio when the page is hidden — resume when it comes back
 document.addEventListener('visibilitychange', () => {
   if (document.visibilityState === 'visible' && started && S.musicOn) playMusic();
@@ -554,7 +642,7 @@ function place(p) {
   pivot.visible = shadowPlane.visible = true;
   apply();
   setHud('');
-  toast('Placed — drag to move, pinch to scale, double-tap to hide controls', 3000);
+  toast('Placed — drag to move, pinch to scale', 2500);
 }
 
 // ---------- 8th Wall pipeline ----------
@@ -579,7 +667,7 @@ const scenePipelineModule = () => ({
       scene.environment = new THREE.PMREMGenerator(renderer).fromScene(new RoomEnvironment(), 0.04).texture;
     } catch (e) { console.warn('Environment map unavailable', e); }
 
-    scene.add(hemi, sun, sun.target, shadowPlane, reticle, pivot);
+    scene.add(hemi, sun, sun.target, shadowPlane, reticle, pivot, lightArrow);
     pivot.visible = shadowPlane.visible = false;
 
     // Camera starts at the phone's height above the floor; this sets the scale of the world
@@ -589,11 +677,12 @@ const scenePipelineModule = () => ({
     canvas.addEventListener('touchmove', e => e.preventDefault(), { passive: false });
     apply();
     startPlacing();
-    document.body.classList.remove('closed');
+    document.body.classList.remove('pre');
   },
   onUpdate: () => {
     timer.update();
-    mixer?.update(timer.getDelta());
+    const dt = timer.getDelta();
+    mixer?.update(dt);
     if (placing && camera) {
       // preview the model on the floor under the centre of the screen
       const p = floorHit(innerWidth / 2, innerHeight / 2);
@@ -606,6 +695,10 @@ const scenePipelineModule = () => ({
         apply();
       }
     }
+    // fade the light arrow in while the light is being moved, out shortly after
+    const target = performance.now() - lightTouchedAt < ARROW_HOLD_MS && pivot.visible ? 0.95 : 0;
+    arrowMat.opacity += (target - arrowMat.opacity) * Math.min(1, dt * (target > arrowMat.opacity ? 10 : 4));
+    lightArrow.visible = arrowMat.opacity > 0.01;
   },
 });
 
@@ -617,8 +710,7 @@ async function start() {
   if (started) return;
   started = true;
   if (S.musicOn) playMusic(); else unlockAudio();   // must happen inside the tap
-  const d = document.documentElement;
-  (d.requestFullscreen || d.webkitRequestFullscreen)?.call(d)?.catch?.(() => {});
+  enterFullscreen();                                // the camera prompt may exit it — use the fullscreen button to return
   $('start').classList.add('gone');
   setHud('Starting camera…');
   await waitForXR();
@@ -634,7 +726,6 @@ async function start() {
   ]);
   XR8.run({ canvas: $('camerafeed') });
 }
-$('startBtn').onclick = start;
 
 // ---------- Touch gestures ----------
 const canvas = $('camerafeed');
@@ -685,7 +776,7 @@ canvas.addEventListener('touchend', e => {
         if (p) place(p);
       } else {
         const now = performance.now();
-        if (now - lastTap < 350) { document.body.classList.toggle('bare'); lastTap = 0; }
+        if (now - lastTap < 350) { setBare(!document.body.classList.contains('bare')); lastTap = 0; }
         else lastTap = now;
       }
     }
@@ -701,18 +792,41 @@ function queueUI() {
   requestAnimationFrame(() => { uiQueued = false; refreshUI(); save(); });
 }
 
-// ---------- Panel buttons ----------
-$('moveBtn').onclick = () => { document.body.classList.add('closed'); startPlacing(); };
-$('recenterBtn').onclick = () => {
+// ---------- Build UI and wire buttons ----------
+buildUI();
+// panel buttons live inside panels that aren't in the DOM until opened, so look them up via the panel bodies
+const btn = id => { for (const k in panelBodies) { const b = panelBodies[k].querySelector('#' + id); if (b) return b; } };
+
+$('startBtn').onclick = start;
+$('restore').onclick = () => setBare(false);
+btn('placeBtn').onclick = () => { showPanel(null); startPlacing(); };
+btn('recenterBtn').onclick = () => {
   if (!started || !window.XR8) return;
   XR8.XrController.recenter();
+  showPanel(null);
   startPlacing();
   toast('Tracking recentered — place the model again');
 };
-$('closeBtn').onclick = () => document.body.classList.add('closed');
-$('showBtn').onclick = () => document.body.classList.remove('closed');
-$('bareBtn').onclick = () => { document.body.classList.add('bare'); toast('Double-tap to bring the controls back', 3000); };
-$('resetBtn').onclick = () => {
+btn('musicBtn').onclick = () => $('musicIn').click();
+$('musicIn').onchange = e => {
+  const f = e.target.files[0];
+  if (!f) return;
+  musicMissing = false;
+  music.src = URL.createObjectURL(f);
+  if (S.musicOn) playMusic();
+  toast(`Music: ${f.name} (this session only)`);
+  e.target.value = '';
+};
+btn('loadBtn').onclick = () => $('fileIn').click();
+$('fileIn').onchange = e => {
+  const f = e.target.files[0];
+  if (!f) return;
+  const url = URL.createObjectURL(f);
+  loadModel(url, f.name).then(() => toast(`Loaded ${f.name} (this session only)`))
+    .catch(() => toast('Could not read that file — use a .glb')).finally(() => URL.revokeObjectURL(url));
+  e.target.value = '';
+};
+btn('resetBtn').onclick = () => {
   if (!confirm('Reset all settings to defaults?')) return;
   const oldH = S.camH;
   Object.assign(S, DEFAULTS);
@@ -721,12 +835,12 @@ $('resetBtn').onclick = () => {
   apply(); refreshUI(); save(); playClip();
   if (S.camH !== oldH) applyCameraHeight();
 };
-$('copyBtn').onclick = async () => {
+btn('copyBtn').onclick = async () => {
   const txt = JSON.stringify(S);
   try { await navigator.clipboard.writeText(txt); toast('Settings copied'); }
   catch { prompt('Copy these settings:', txt); }
 };
-$('pasteBtn').onclick = () => {
+btn('pasteBtn').onclick = () => {
   const txt = prompt('Paste settings JSON:');
   if (!txt) return;
   try {
@@ -741,13 +855,14 @@ $('pasteBtn').onclick = () => {
 };
 addEventListener('keydown', e => {
   if (e.target.tagName === 'INPUT') return;
-  if (e.key === 'h') document.body.classList.toggle('bare');
+  if (e.key === 'h') setBare(!document.body.classList.contains('bare'));
 });
 
 // ---------- Go ----------
-buildPanel();
 refreshUI();
 apply();
+loadModel(MODEL_URL, 'model.glb').catch(() =>
+  loadModel(FALLBACK_URL, 'Demo robot (add model.glb)', true).catch(() => setStatus('Model failed to load')));
 </script>
 </body>
 </html>
