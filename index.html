@@ -609,7 +609,15 @@ function setModel(gltf, name, isFallback) {
   if (model) { inner.remove(model); mixer?.stopAllAction(); }
   fades = []; seq.action = null; seq.on = false;
   model = gltf.scene;
-  model.traverse(o => { if (o.isMesh) { o.castShadow = true; o.receiveShadow = true; } });
+  model.traverse(o => {
+    if (!o.isMesh) return;
+    o.castShadow = true; o.receiveShadow = true;
+    // Blender often exports materials as alpha "BLEND", which turns off depth writing so the inside of the
+    // mouth, far ear and inner legs draw through the front. Render opaque, keeping a cutout for any real holes.
+    for (const m of [].concat(o.material)) {
+      if (m.transparent) { m.transparent = false; m.depthWrite = true; m.alphaTest = 0.5; m.needsUpdate = true; }
+    }
+  });
   const box = new THREE.Box3().setFromObject(model);
   const size = box.getSize(new THREE.Vector3()), center = box.getCenter(new THREE.Vector3());
   model.position.set(-center.x, -box.min.y, -center.z);
