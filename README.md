@@ -38,7 +38,7 @@ No build step is needed. Everything loads from CDNs.
 | Four arrows | **Position & rotation**: rotation, model height, fine nudges, gesture lock, *Place again* |
 | Light bulb | **Light source**: direction, height, intensity and colour, plus ambient light, reflections and exposure. An arrow fades in on the model while you change direction or height, showing where the light comes from. |
 | Ball and shadow | **Shadow**: darkness, softness |
-| Play button | **Animation**: clip, play/pause, speed |
+| Play button | **Animation**: the looping sequence (see below), play/pause, speed, blend time and easing |
 | Music note | **Music**: on/off, volume, load a track |
 | Crosshair | **Tracking**: phone height above floor, *Recenter tracking* |
 | Cube | **Model & settings**: load a model, copy, paste or reset settings, licence notice |
@@ -46,6 +46,33 @@ No build step is needed. Everything loads from CDNs.
 | Eye | **Hide controls**: leaves a faint outline circle; tap it, or double-tap, to bring them back |
 
 All panels are see-through so they cover as little of the camera view as possible.
+
+### Animation sequence
+
+The model plays a looping sequence of clips, defined in `DEFAULT_SEQUENCE` near the top of the script in `index.html`:
+
+| Step | Clip | Cycles |
+|---|---|---|
+| 1 | Armature.001Action.001 | 1 |
+| 2 | Walk | 4 |
+| 3 | Idle | 2 |
+| 4 | Armature.001Action | 3 |
+| 5 | Idle | 1 |
+| 6 | Armature.001Action.001 | 2 |
+| 7 | Idle | 1 |
+| 8 | Armature.001Action | 2 |
+| 9 | Idle | 1 |
+| 10 | Walk | 4 |
+
+Then it loops back to step 1. One loop takes about 80 s.
+
+- Each step crossfades into the next over **Blend between clips** (0.8 s by default), using the chosen **Blend easing** (ease in-out by default). A step can override the blend with its own value in the **Blend s** column.
+- Clips are cleaned up when they load. Blender's one-frame start offset is removed, and each clip's last 0.3 s is eased back into its first pose, so repeated cycles loop without a pop.
+- In the Animation panel you can change any step's clip, cycles or blend, add or remove steps, and see which step is playing. Changes are saved on the device. Use **Copy sequence** to get the result as text, then paste it to me or into `DEFAULT_SEQUENCE` to make it the default.
+
+## Desktop preview
+
+Open `index.html?preview` (for example `https://<username>.github.io/<repo>/?preview`) to see the model in a plain 3D view on a computer, with no camera or tracking. It has the same panels, so you can tune the sequence, lighting and shadows. Drag to orbit and scroll to zoom.
 
 ### Getting the scale right
 

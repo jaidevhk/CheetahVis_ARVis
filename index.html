@@ -154,6 +154,16 @@
   .btns { display: flex; flex-wrap: wrap; gap: 6px; }
   .btns .btn { flex: 1 1 auto; font-size: 13px; }
   .status { color: var(--muted); font-size: 12px; margin: -4px 0 0; }
+  .seqstatus { font-size: 13px; margin: -4px 0 0; color: var(--accent); min-height: 1.2em; }
+  .steps { display: grid; gap: 6px; }
+  .steps .shead, .steps .step { display: grid; grid-template-columns: 18px 1fr 50px 50px 22px; gap: 5px; align-items: center; }
+  .steps .shead { color: var(--muted); font-size: 11px; }
+  .steps .step { border-radius: 8px; padding: 2px 0; }
+  .steps .step.now { background: rgba(77, 163, 255, 0.18); outline: 1px solid rgba(77, 163, 255, 0.5); }
+  .steps .idx { color: var(--muted); font-size: 12px; text-align: right; }
+  .steps select { max-width: none; width: 100%; padding: 4px 4px; font-size: 12px; }
+  .steps .num { width: 100%; font-size: 12px; padding: 3px 4px; }
+  .steps .del { background: none; border: 0; color: var(--muted); font-size: 15px; padding: 0; cursor: pointer; text-shadow: inherit; }
   .credit { color: var(--muted); font-size: 11px; margin: 0; }
   .credit a { color: var(--muted); }
 
@@ -249,9 +259,17 @@ const PANELS = [
     { key: 'shadowSoft', label: 'Shadow softness', min: 0, max: 12, step: 0.1, def: 3 },
   ]},
   { id: 'anim', title: 'Animation', items: [
-    { type: 'clip', key: 'clip', label: 'Clip' },
+    { type: 'seqstatus' },
+    { type: 'toggle', key: 'useSeq', label: 'Play sequence (loops)', def: true },
     { type: 'toggle', key: 'playing', label: 'Playing', def: true },
     { key: 'animSpeed', label: 'Speed', min: 0, max: 3, step: 0.05, def: 1, unit: '×' },
+    { key: 'blend', label: 'Blend between clips', min: 0, max: 3, step: 0.05, def: 0.8, unit: 's' },
+    { type: 'select', key: 'easing', label: 'Blend easing', def: 'easeInOut',
+      options: [['easeInOut', 'Ease in-out'], ['smooth', 'Smoothstep'], ['easeIn', 'Ease in'], ['easeOut', 'Ease out'], ['linear', 'Linear']] },
+    { type: 'seqsteps' },
+    { type: 'buttons', buttons: [{ id: 'addStepBtn', label: '+ Add step' }, { id: 'copySeqBtn', label: 'Copy sequence' }, { id: 'resetSeqBtn', label: 'Reset sequence', warn: true }] },
+    { type: 'clip', key: 'clip', label: 'Single clip (sequence off)' },
+    { type: 'hint', text: 'Each step plays a clip for a number of cycles, then blends into the next. A step’s own blend overrides the global one. The sequence loops forever.' },
   ]},
   { id: 'music', title: 'Music', items: [
     { type: 'toggle', key: 'musicOn', label: 'Play music (loops)', def: true },
@@ -286,6 +304,35 @@ function save() {
   clearTimeout(saveTimer);
   saveTimer = setTimeout(() => { try { localStorage.setItem(STORE_KEY, JSON.stringify(S)); } catch {} }, 250);
 }
+
+// ---------- Animation sequence ----------
+// Each step plays `clip` for `cycles` loops, then blends into the next step; the list repeats forever.
+// `blend` (seconds) on a step overrides the global blend for the transition INTO that step.
+const DEFAULT_SEQUENCE = [
+  { clip: 'Armature.001Action.001', cycles: 1 },
+  { clip: 'Walk', cycles: 4 },
+  { clip: 'Idle', cycles: 2 },
+  { clip: 'Armature.001Action', cycles: 3 },
+  { clip: 'Idle', cycles: 1 },
+  { clip: 'Armature.001Action.001', cycles: 2 },
+  { clip: 'Idle', cycles: 1 },
+  { clip: 'Armature.001Action', cycles: 2 },
+  { clip: 'Idle', cycles: 1 },
+  { clip: 'Walk', cycles: 4 },
+];
+const SEQ_KEY = 'ar-8thwall-sequence-v1';
+let SEQ;
+try { SEQ = JSON.parse(localStorage.getItem(SEQ_KEY)); } catch {}
+if (!Array.isArray(SEQ) || !SEQ.length) SEQ = structuredClone(DEFAULT_SEQUENCE);
+const saveSeq = () => { try { localStorage.setItem(SEQ_KEY, JSON.stringify(SEQ)); } catch {} };
+
+const EASINGS = {
+  linear: t => t,
+  easeIn: t => t * t * t,
+  easeOut: t => 1 - Math.pow(1 - t, 3),
+  easeInOut: t => t < 0.5 ? 4 * t * t * t : 1 - Math.pow(-2 * t + 2, 3) / 2,
+  smooth: t => t * t * (3 - 2 * t),
+};
 
 // ---------- DOM helpers ----------
 const $ = id => document.getElementById(id);
@@ -417,6 +464,7 @@ function change(key, v) {
   if (key === 'musicOn') v ? playMusic() : music.pause();
   if (key === 'camH') { clearTimeout(camHTimer); camHTimer = setTimeout(applyCameraHeight, 600); }
   if (key === 'lightAz' || key === 'lightEl') lightTouchedAt = performance.now();
+  if (key === 'useSeq') restartAnimation();
   controls[key]?.(v);
   apply();
   save();
@@ -477,9 +525,17 @@ function buildItem(it) {
     }
     case 'clip': {
       clipSelect = el('select', {}, el('option', {}, '—'));
-      clipSelect.addEventListener('change', () => { S.clip = clipSelect.value; playClip(); save(); });
+      clipSelect.addEventListener('change', () => { S.clip = clipSelect.value; if (!S.useSeq) playClip(); save(); });
       return inlineRow(it.label, clipSelect);
     }
+    case 'select': {
+      const s = el('select', {}, ...it.options.map(([v, l]) => el('option', { value: v }, l)));
+      controls[it.key] = v => { s.value = v; };
+      s.addEventListener('change', () => change(it.key, s.value));
+      return inlineRow(it.label, s);
+    }
+    case 'seqstatus': return el('p', { class: 'seqstatus', id: 'seqStatus' }, '');
+    case 'seqsteps': return stepsEl;
     default: return rangeRow(it);
   }
 }
@@ -550,7 +606,8 @@ loader.setDRACOLoader(new DRACOLoader().setDecoderPath('https://cdn.jsdelivr.net
 loader.setMeshoptDecoder(MeshoptDecoder);
 
 function setModel(gltf, name, isFallback) {
-  if (model) { inner.remove(model); mixer?.stopAllAction(); action = null; }
+  if (model) { inner.remove(model); mixer?.stopAllAction(); }
+  fades = []; seq.action = null; seq.on = false;
   model = gltf.scene;
   model.traverse(o => { if (o.isMesh) { o.castShadow = true; o.receiveShadow = true; } });
   const box = new THREE.Box3().setFromObject(model);
@@ -562,23 +619,192 @@ function setModel(gltf, name, isFallback) {
 
   mixer = new THREE.AnimationMixer(model);
   clips = gltf.animations || [];
+  prepared = new WeakSet();
   clipSelect.replaceChildren(...(clips.length ? clips.map(c => el('option', { value: c.name }, c.name || '(unnamed)')) : [el('option', {}, 'No animations')]));
   clipSelect.disabled = !clips.length;
-  if (!clips.find(c => c.name === S.clip)) S.clip = (clips.find(c => /dance|idle/i.test(c.name)) || clips[0])?.name || '';
+  if (!clips.find(c => c.name === S.clip)) S.clip = (clips.find(c => /idle/i.test(c.name)) || clips[0])?.name || '';
   clipSelect.value = S.clip;
-  playClip();
+  renderSteps();
+  restartAnimation();
   apply(); refreshUI();
   setStatus(name + (clips.length ? ` · ${clips.length} animations` : ''));
 }
+
+// ---------- Clip clean-up ----------
+// Blender often exports clips starting at frame 1 and with end poses that don't quite match the start.
+// Shift each clip to start at 0, and ease its last moments back into its first pose so repeats are seamless.
+let prepared = new WeakSet();
+const _qa = new THREE.Quaternion(), _qb = new THREE.Quaternion();
+function findClip(name) {
+  const norm = s => String(s || '').toLowerCase().replace(/\s+/g, '');
+  return clips.find(c => c.name === name) || clips.find(c => norm(c.name) === norm(name));
+}
+function prepareClip(clip) {
+  if (!clip || prepared.has(clip)) return clip;
+  prepared.add(clip);
+  // tracks often share the same times (and sometimes values) arrays, so touch each array only once
+  let t0 = Infinity;
+  for (const tr of clip.tracks) if (tr.times.length) t0 = Math.min(t0, tr.times[0]);
+  if (t0 > 0 && t0 < 0.5) {
+    for (const times of new Set(clip.tracks.map(tr => tr.times))) for (let i = 0; i < times.length; i++) times[i] -= t0;
+  }
+  clip.resetDuration();
+  const dur = clip.duration, win = Math.min(0.3, dur * 0.2);
+  const doneValues = new Set();
+  for (const tr of clip.tracks) {
+    const n = tr.getValueSize(), v = tr.values, times = tr.times;
+    if (doneValues.has(v)) continue;
+    doneValues.add(v);
+    if (times.length < 3 || v.length !== times.length * n) continue; // skip cubic-spline tracks
+    const isQuat = tr instanceof THREE.QuaternionKeyframeTrack;
+    if (isQuat) _qb.fromArray(v, 0);
+    for (let i = 1; i < times.length; i++) {
+      const u = (times[i] - (dur - win)) / win;
+      if (u <= 0) continue;
+      const w = u >= 1 ? 1 : u * u * (3 - 2 * u);
+      if (isQuat) _qa.fromArray(v, i * n).slerp(_qb, w).toArray(v, i * n);
+      else for (let k = 0; k < n; k++) v[i * n + k] += (v[k] - v[i * n + k]) * w;
+    }
+  }
+  return clip;
+}
+
+// ---------- Sequencer ----------
+// Steps overlap by their blend time: the next clip starts fading in `blend` seconds before the
+// current step's last cycle ends, with eased weights that always add up to 1.
+const seq = { on: false, index: -1, time: 0, duration: 0, action: null };
+let fades = []; // { action, from, to, t, dur }
+
+const stepBlend = step => Math.max(0, step && step.blend != null && step.blend !== '' ? +step.blend : S.blend);
+function stepDuration(step) {
+  const clip = prepareClip(findClip(step.clip));
+  return clip ? Math.max(0.05, clip.duration * Math.max(0.1, +step.cycles || 1)) : 0;
+}
+function fadeTo(next, blend) {
+  for (const f of fades) if (f.action === next) f.done = true;
+  fades = fades.filter(f => !f.done);
+  const active = mixer._actions.filter(a => a !== next && a.isRunning() && a.getEffectiveWeight() > 0);
+  next.reset().setLoop(THREE.LoopRepeat, Infinity).setEffectiveTimeScale(1).play();
+  if (blend <= 0) {
+    next.setEffectiveWeight(1);
+    for (const a of active) a.stop();
+    return;
+  }
+  next.setEffectiveWeight(0);
+  fades.push({ action: next, from: 0, to: 1, t: 0, dur: blend });
+  for (const a of active) {
+    fades = fades.filter(f => f.action !== a);
+    fades.push({ action: a, from: a.getEffectiveWeight(), to: 0, t: 0, dur: blend });
+  }
+}
+function updateFades(dt) {
+  const ease = EASINGS[S.easing] || EASINGS.easeInOut;
+  for (const f of fades) {
+    f.t += dt;
+    const k = Math.min(1, f.t / f.dur);
+    f.action.setEffectiveWeight(f.from + (f.to - f.from) * ease(k));
+    if (k >= 1) { f.done = true; if (f.to === 0) f.action.stop(); }
+  }
+  fades = fades.filter(f => !f.done);
+}
+function validSteps() { return SEQ.filter(s => findClip(s.clip)); }
+function gotoStep(i, blend, startTime = 0) {
+  const n = SEQ.length;
+  for (let tries = 0; tries < n; tries++, i++) {          // skip steps whose clip isn't in this model
+    const step = SEQ[((i % n) + n) % n];
+    const clip = prepareClip(findClip(step.clip));
+    if (!clip) continue;
+    seq.index = ((i % n) + n) % n;
+    seq.duration = stepDuration(step);
+    seq.time = startTime;
+    const next = mixer.clipAction(clip);
+    if (next === seq.action && next.isRunning() && next.getEffectiveWeight() > 0.99) {
+      // same clip as the step before: keep it playing seamlessly, just restart the cycle count
+      seq.time = 0;
+    } else {
+      seq.action = next;
+      fadeTo(next, blend);
+      next.time = startTime % clip.duration;
+    }
+    highlightStep();
+    return true;
+  }
+  return false;
+}
+function startSequence() {
+  seq.on = !!(mixer && validSteps().length);
+  if (!seq.on) return false;
+  gotoStep(0, seq.action ? stepBlend(SEQ[0]) : 0);
+  return true;
+}
+function updateSequence(dt) {
+  if (!seq.on || !mixer) return;
+  seq.time += dt;
+  const nextStep = SEQ[(seq.index + 1) % SEQ.length];
+  const blend = Math.min(stepBlend(nextStep), seq.duration * 0.9);
+  if (seq.time >= seq.duration - blend) gotoStep(seq.index + 1, blend, seq.time - (seq.duration - blend));
+  updateStatus();
+}
 function playClip() {
+  // single-clip mode: loop the chosen clip
+  seq.on = false;
+  highlightStep();
   if (!mixer) return;
-  const clip = clips.find(c => c.name === S.clip);
-  const next = clip ? mixer.clipAction(clip) : null;
-  if (next === action) return;
-  if (action && next) { next.reset().play(); action.crossFadeTo(next, 0.3, false); }
-  else if (next) next.play();
-  else action?.stop();
-  action = next;
+  const clip = prepareClip(findClip(S.clip));
+  if (!clip) return;
+  seq.action = mixer.clipAction(clip);
+  fadeTo(seq.action, seq.action.isRunning() ? 0 : 0.4);
+  updateStatus();
+}
+function restartAnimation() {
+  if (!mixer) return;
+  if (S.useSeq && startSequence()) return;
+  playClip();
+}
+
+// ---------- Sequence step list (in the Animation panel) ----------
+const stepsEl = el('div', { class: 'steps' });
+let lastStatus = '';
+function updateStatus() {
+  const s = $('seqStatus');
+  if (!s) return;
+  let txt = '';
+  if (seq.on && SEQ[seq.index]) {
+    const step = SEQ[seq.index], clip = findClip(step.clip);
+    const cycle = clip ? Math.min(Math.floor(seq.time / clip.duration) + 1, Math.ceil(+step.cycles || 1)) : 1;
+    txt = `▶ Step ${seq.index + 1}/${SEQ.length} · ${step.clip} · cycle ${cycle}/${step.cycles}`;
+  } else if (S.clip) txt = `▶ Looping ${S.clip}`;
+  if (txt !== lastStatus) { s.textContent = txt; lastStatus = txt; }
+}
+function highlightStep() {
+  stepsEl.querySelectorAll('.step').forEach((r, i) => r.classList.toggle('now', seq.on && i === seq.index));
+}
+// 'Armature.001Action.001' → 'Action.001' so similar names stay distinguishable in the narrow list
+const shortName = n => String(n).replace(/^Armature(\.\d+)?(?=Action)/, '') || n;
+function renderSteps() {
+  const names = clips.map(c => c.name);
+  const head = el('div', { class: 'shead' }, el('span'), el('span', {}, 'Clip'), el('span', {}, 'Cycles'), el('span', {}, 'Blend s'), el('span'));
+  const rows = SEQ.map((step, i) => {
+    const sel = el('select', { title: step.clip }, ...[...new Set([...names, step.clip])].map(n => el('option', { value: n }, findClip(n) ? shortName(n) : `${shortName(n)} (missing)`)));
+    sel.value = step.clip;
+    sel.onchange = () => { step.clip = sel.value; sel.title = sel.value; seqEdited(i); };
+    const cyc = el('input', { type: 'number', class: 'num', min: 0.25, step: 0.25, inputmode: 'decimal' });
+    cyc.value = step.cycles;
+    cyc.onchange = () => { step.cycles = Math.max(0.25, parseFloat(cyc.value) || 1); cyc.value = step.cycles; seqEdited(i); };
+    const bl = el('input', { type: 'number', class: 'num', min: 0, step: 0.05, inputmode: 'decimal', placeholder: 'auto' });
+    bl.value = step.blend ?? '';
+    bl.onchange = () => { const v = parseFloat(bl.value); if (isNaN(v)) delete step.blend; else step.blend = Math.max(0, v); seqEdited(i); };
+    const del = el('button', { class: 'del', type: 'button', 'aria-label': `Remove step ${i + 1}` }, '✕');
+    del.onclick = () => { if (SEQ.length > 1) { SEQ.splice(i, 1); seqEdited(-1, true); } };
+    return el('div', { class: 'step' }, el('span', { class: 'idx' }, String(i + 1)), sel, cyc, bl, del);
+  });
+  stepsEl.replaceChildren(head, ...rows);
+  highlightStep();
+}
+function seqEdited(i, structural = false) {
+  saveSeq();
+  if (structural) { renderSteps(); if (S.useSeq) restartAnimation(); return; }
+  if (seq.on && i === seq.index) seq.duration = stepDuration(SEQ[i]); // apply to the step that's playing now
 }
 function loadModel(url, name, isFallback = false) {
   return new Promise((resolve, reject) => {
@@ -611,7 +837,7 @@ function playMusic() {
 }
 // iOS pauses audio when the page is hidden — resume when it comes back
 document.addEventListener('visibilitychange', () => {
-  if (document.visibilityState === 'visible' && started && S.musicOn) playMusic();
+  if (document.visibilityState === 'visible' && started && S.musicOn && !musicMissing) playMusic();
 });
 
 // ---------- Floor raycasting ----------
@@ -655,19 +881,46 @@ function applyCameraHeight() {
   toast('Tracking recentered — place the model again');
 }
 
+// Shared by the AR session and the desktop preview
+function setupScene() {
+  renderer.shadowMap.enabled = true;
+  renderer.shadowMap.type = THREE.PCFShadowMap;
+  renderer.toneMapping = THREE.ACESFilmicToneMapping;
+  renderer.outputColorSpace = THREE.SRGBColorSpace;
+  try {
+    scene.environment = new THREE.PMREMGenerator(renderer).fromScene(new RoomEnvironment(), 0.04).texture;
+  } catch (e) { console.warn('Environment map unavailable', e); }
+  scene.add(hemi, sun, sun.target, shadowPlane, reticle, pivot, lightArrow);
+}
+function frameUpdate(dt) {
+  dt = Math.min(dt, 0.1); // a slow first frame or a backgrounded tab mustn't skip through the sequence
+  mixer?.update(dt);
+  const animDt = dt * (mixer ? mixer.timeScale : 0);
+  updateFades(animDt);
+  updateSequence(animDt);
+  if (placing && camera) {
+    // preview the model on the floor under the centre of the screen
+    const p = floorHit(innerWidth / 2, innerHeight / 2);
+    reticle.visible = !!p;
+    pivot.visible = shadowPlane.visible = !!p;
+    if (p) {
+      reticle.position.set(p.x, 0.002, p.z);
+      anchorPos.set(p.x, 0, p.z);
+      faceViewer(p);
+      apply();
+    }
+  }
+  // fade the light arrow in while the light is being moved, out shortly after
+  const target = performance.now() - lightTouchedAt < ARROW_HOLD_MS && pivot.visible ? 0.95 : 0;
+  arrowMat.opacity += (target - arrowMat.opacity) * Math.min(1, dt * (target > arrowMat.opacity ? 10 : 4));
+  lightArrow.visible = arrowMat.opacity > 0.01;
+}
+
 const scenePipelineModule = () => ({
   name: 'floorviewer',
   onStart: ({ canvas }) => {
     ({ scene, camera, renderer } = XR8.Threejs.xrScene());
-    renderer.shadowMap.enabled = true;
-    renderer.shadowMap.type = THREE.PCFShadowMap;
-    renderer.toneMapping = THREE.ACESFilmicToneMapping;
-    renderer.outputColorSpace = THREE.SRGBColorSpace;
-    try {
-      scene.environment = new THREE.PMREMGenerator(renderer).fromScene(new RoomEnvironment(), 0.04).texture;
-    } catch (e) { console.warn('Environment map unavailable', e); }
-
-    scene.add(hemi, sun, sun.target, shadowPlane, reticle, pivot, lightArrow);
+    setupScene();
     pivot.visible = shadowPlane.visible = false;
 
     // Camera starts at the phone's height above the floor; this sets the scale of the world
@@ -681,26 +934,50 @@ const scenePipelineModule = () => ({
   },
   onUpdate: () => {
     timer.update();
-    const dt = timer.getDelta();
-    mixer?.update(dt);
-    if (placing && camera) {
-      // preview the model on the floor under the centre of the screen
-      const p = floorHit(innerWidth / 2, innerHeight / 2);
-      reticle.visible = !!p;
-      pivot.visible = shadowPlane.visible = !!p;
-      if (p) {
-        reticle.position.set(p.x, 0.002, p.z);
-        anchorPos.set(p.x, 0, p.z);
-        faceViewer(p);
-        apply();
-      }
-    }
-    // fade the light arrow in while the light is being moved, out shortly after
-    const target = performance.now() - lightTouchedAt < ARROW_HOLD_MS && pivot.visible ? 0.95 : 0;
-    arrowMat.opacity += (target - arrowMat.opacity) * Math.min(1, dt * (target > arrowMat.opacity ? 10 : 4));
-    lightArrow.visible = arrowMat.opacity > 0.01;
+    frameUpdate(timer.getDelta());
   },
 });
+
+// Desktop preview (index.html?preview): no camera or tracking — a plain 3D view for tuning
+// the animation sequence, lighting and shadows on a computer.
+function startPreview() {
+  started = true;
+  $('start').classList.add('gone');
+  const cv = $('camerafeed');
+  renderer = new THREE.WebGLRenderer({ canvas: cv, antialias: true });
+  renderer.setPixelRatio(Math.min(devicePixelRatio, 2));
+  scene = new THREE.Scene();
+  scene.background = new THREE.Color(0x8a8f96);
+  camera = new THREE.PerspectiveCamera(45, 1, 0.01, 100);
+  setupScene();
+  const grid = new THREE.GridHelper(10, 20, 0x555a60, 0x6f747a);
+  scene.add(grid);
+  shadowMat.opacity = Math.max(S.shadowOpacity, 0.35);
+  anchorPos.set(0, 0, 0); anchorYaw = 0; placing = false;
+  pivot.visible = shadowPlane.visible = true;
+  let orbit = { az: 0.6, el: 0.25, dist: 3.2 }, drag = null;
+  const place = () => {
+    const h = S.size * 0.45;
+    camera.position.set(Math.sin(orbit.az) * Math.cos(orbit.el) * orbit.dist, h + Math.sin(orbit.el) * orbit.dist, Math.cos(orbit.az) * Math.cos(orbit.el) * orbit.dist);
+    camera.lookAt(0, h, 0);
+  };
+  const resize = () => { renderer.setSize(innerWidth, innerHeight, false); camera.aspect = innerWidth / innerHeight; camera.updateProjectionMatrix(); };
+  cv.addEventListener('pointerdown', e => { drag = { x: e.clientX, y: e.clientY, ...orbit }; cv.setPointerCapture(e.pointerId); });
+  cv.addEventListener('pointermove', e => { if (!drag) return; orbit.az = drag.az - (e.clientX - drag.x) * 0.008; orbit.el = clamp(drag.el + (e.clientY - drag.y) * 0.006, -0.1, 1.4); });
+  cv.addEventListener('pointerup', () => { drag = null; });
+  cv.addEventListener('wheel', e => { orbit.dist = clamp(orbit.dist * (1 + e.deltaY * 0.001), 0.5, 20); e.preventDefault(); }, { passive: false });
+  addEventListener('resize', resize);
+  resize();
+  apply();
+  document.body.classList.remove('pre');
+  window.__preview = { seq, SEQ, frameUpdate, weights: () => mixer ? mixer._actions.filter(a => a.isRunning()).map(a => [a.getClip().name, +a.getEffectiveWeight().toFixed(3)]) : [] };
+  renderer.setAnimationLoop(() => {
+    timer.update();
+    frameUpdate(timer.getDelta());
+    place();
+    renderer.render(scene, camera);
+  });
+}
 
 let started = false;
 function waitForXR() {
@@ -798,6 +1075,7 @@ buildUI();
 const btn = id => { for (const k in panelBodies) { const b = panelBodies[k].querySelector('#' + id); if (b) return b; } };
 
 $('startBtn').onclick = start;
+if (new URLSearchParams(location.search).has('preview')) startPreview();
 $('restore').onclick = () => setBare(false);
 btn('placeBtn').onclick = () => { showPanel(null); startPlacing(); };
 btn('recenterBtn').onclick = () => {
@@ -832,7 +1110,7 @@ btn('resetBtn').onclick = () => {
   Object.assign(S, DEFAULTS);
   sizeIsSet = false;
   if (model) S.size = naturalHeight >= 0.05 && naturalHeight <= 10 ? +naturalHeight.toFixed(2) : 1.2;
-  apply(); refreshUI(); save(); playClip();
+  apply(); refreshUI(); save(); restartAnimation();
   if (S.camH !== oldH) applyCameraHeight();
 };
 btn('copyBtn').onclick = async () => {
@@ -848,10 +1126,24 @@ btn('pasteBtn').onclick = () => {
     const oldH = S.camH;
     for (const k in DEFAULTS) if (k in obj) S[k] = obj[k];
     sizeIsSet = 'size' in obj || sizeIsSet;
-    apply(); refreshUI(); save(); playClip();
+    apply(); refreshUI(); save(); restartAnimation();
     if (S.camH !== oldH) applyCameraHeight();
     toast('Settings applied');
   } catch { toast('That is not valid settings JSON'); }
+};
+btn('addStepBtn').onclick = () => {
+  SEQ.push({ clip: (findClip('Idle') || clips[0])?.name || 'Idle', cycles: 1 });
+  seqEdited(-1, true);
+};
+btn('copySeqBtn').onclick = async () => {
+  const txt = JSON.stringify({ blend: S.blend, easing: S.easing, steps: SEQ }, null, 2);
+  try { await navigator.clipboard.writeText(txt); toast('Sequence copied'); }
+  catch { prompt('Copy this sequence:', JSON.stringify({ blend: S.blend, easing: S.easing, steps: SEQ })); }
+};
+btn('resetSeqBtn').onclick = () => {
+  if (!confirm('Reset the sequence to the default?')) return;
+  SEQ = structuredClone(DEFAULT_SEQUENCE);
+  seqEdited(-1, true);
 };
 addEventListener('keydown', e => {
   if (e.target.tagName === 'INPUT') return;
