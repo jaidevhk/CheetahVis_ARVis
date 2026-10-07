@@ -1,4 +1,4 @@
-# AR Floor Viewer (8th Wall)
+# AR Cheetah Viewer (8th Wall)
 
 Web AR that places an animated 3D model on the real floor, with looping music and controls for position, lighting and shadows.
 It runs in **plain Safari on iPhone** and Chrome on Android, with no app, App Clip or account needed.

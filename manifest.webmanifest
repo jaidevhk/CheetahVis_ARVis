@@ -1,6 +1,6 @@
 {
-  "name": "AR Overlay",
-  "short_name": "AR Overlay",
+  "name": "AR Cheetah Viewer",
+  "short_name": "AR Cheetah",
   "start_url": ".",
   "scope": ".",
   "display": "fullscreen",

@@ -16,6 +16,12 @@ They are not modified or redistributed in this repository.
 
 MIT License, Copyright © 2010–2026 three.js authors. https://github.com/mrdoob/three.js/blob/dev/LICENSE
 
+## Cheetah model
+
+"Cheetah" by planeta-elefante, https://sketchfab.com/3d-models/cheetah-8d3ba32a2ff34acc9b5c590bc06cb561,
+licensed under Creative Commons Attribution 4.0 (CC BY 4.0), https://creativecommons.org/licenses/by/4.0/.
+Modified: re-exported from Blender and used with a custom animation sequence.
+
 ## Demo model
 
 When no `model.glb` is present, the page loads the "RobotExpressive" sample from the three.js examples

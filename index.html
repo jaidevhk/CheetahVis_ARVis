@@ -6,10 +6,10 @@
 <meta name="apple-mobile-web-app-capable" content="yes">
 <meta name="mobile-web-app-capable" content="yes">
 <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
-<meta name="apple-mobile-web-app-title" content="AR Viewer">
+<meta name="apple-mobile-web-app-title" content="AR Cheetah">
 <meta name="theme-color" content="#000000">
 <link rel="manifest" href="manifest.webmanifest">
-<title>AR Floor Viewer</title>
+<title>AR Cheetah Viewer</title>
 
 <!-- 8th Wall Engine (SLAM world tracking) + helpers. See NOTICE.md for licence and attribution. -->
 <script src="https://cdn.jsdelivr.net/npm/@8thwall/engine-binary@1/dist/xr.js" async crossorigin="anonymous" data-preload-chunks="slam"></script>
@@ -46,7 +46,7 @@
   }
   #camerafeed { position: fixed; inset: 0; width: 100%; height: 100%; display: block; touch-action: none; }
   /* everything floating over the video stays legible without solid backgrounds */
-  #rail, #panel, #hud, #toast { text-shadow: 0 1px 2px rgba(0,0,0,0.85); }
+  #rail, #panel, #hud, #toast, #topbar, #settings { text-shadow: 0 1px 2px rgba(0,0,0,0.85); }
 
   /* Start screen (before AR — not over the video) */
   #start {
@@ -112,7 +112,9 @@
   #panel {
     position: fixed; z-index: 20; display: none;
     right: calc(var(--edge) + var(--btn) + 10px); top: 50%; transform: translateY(-50%);
-    width: min(300px, calc(100vw - var(--btn) - 40px)); max-height: min(80vh, 600px); overflow-y: auto;
+    width: min(300px, calc(100vw - var(--btn) - 40px)); overflow-y: auto;
+    /* centred, but always clear of the top-right buttons */
+    max-height: min(80vh, 600px, calc(100vh - 2 * (max(10px, env(safe-area-inset-top)) + var(--btn) + 14px)));
     background: var(--glass); border: 1px solid var(--line); border-radius: 14px; padding: 12px 14px 14px;
     -webkit-overflow-scrolling: touch;
   }
@@ -171,11 +173,76 @@
   @media (max-height: 520px) {
     :root { --btn: 36px; --gap: 5px; }
     .icon svg { width: 19px; height: 19px; }
-    #panel { max-height: calc(100vh - 20px); }
   }
 
-  body.pre #rail, body.pre #panel { display: none; }
-  body.bare #rail, body.bare #panel { display: none; }
+  /* Top-right: tour + settings */
+  #topbar {
+    position: fixed; z-index: 21; top: max(10px, env(safe-area-inset-top)); right: var(--edge);
+    display: flex; gap: var(--gap);
+  }
+  #settings {
+    position: fixed; z-index: 21; display: none; right: var(--edge);
+    top: calc(max(10px, env(safe-area-inset-top)) + var(--btn) + 10px);
+    width: min(330px, calc(100vw - 20px)); max-height: calc(100vh - var(--btn) - 40px); overflow-y: auto;
+    background: var(--glass); border: 1px solid var(--line); border-radius: 14px; padding: 10px 14px 14px;
+    -webkit-overflow-scrolling: touch;
+  }
+  #settings.open { display: block; }
+  body.settings-open #rail { visibility: hidden; } /* the settings sheet sits where the rail is */
+  .tabs { display: flex; gap: 4px; margin: 0 0 12px; }
+  .tabs button {
+    flex: 1; font: inherit; font-size: 12px; font-weight: 600; padding: 7px 4px; border-radius: 8px; cursor: pointer;
+    background: rgba(0,0,0,0.2); color: var(--muted); border: 1px solid var(--line-soft); text-shadow: inherit;
+  }
+  .tabs button.active { color: var(--text); border-color: var(--accent); background: rgba(77,163,255,0.22); }
+  /* below the top bar the rail would collide on short screens — keep it centred in the remaining space */
+  @media (max-height: 520px) { #rail { top: calc(50% + var(--btn) / 2 + 4px); } }
+
+  /* Reset-to-default buttons */
+  .rst {
+    width: 22px; height: 22px; flex: none; padding: 0; display: grid; place-items: center; cursor: pointer;
+    background: none; border: 0; color: var(--muted); border-radius: 6px;
+  }
+  .rst svg { width: 14px; height: 14px; fill: none; stroke: currentColor; stroke-width: 2; stroke-linecap: round; stroke-linejoin: round; filter: drop-shadow(0 1px 1px rgba(0,0,0,0.8)); }
+  .rst.same { opacity: 0.3; }
+  .rst:active { background: rgba(255,255,255,0.15); }
+  .inline > label:first-child { flex: 1; }
+  .row .val { align-items: center; }
+
+  /* Guided tour */
+  #tour { position: fixed; inset: 0; z-index: 60; display: none; }
+  #tour.on { display: block; }
+  #tourSpot {
+    position: fixed; border-radius: 16px; pointer-events: none;
+    box-shadow: 0 0 0 200vmax rgba(0, 0, 0, 0.66); outline: 2px solid var(--accent); outline-offset: 2px;
+    transition: left .35s ease, top .35s ease, width .35s ease, height .35s ease, opacity .2s;
+  }
+  #tourSpot.none { outline-color: transparent; }
+  #tourCard {
+    position: fixed; width: min(300px, calc(100vw - 32px)); padding: 16px; border-radius: 16px;
+    background: rgba(18, 18, 22, 0.94); border: 1px solid var(--line); box-shadow: 0 10px 40px rgba(0,0,0,0.5);
+    transition: left .35s ease, top .35s ease;
+  }
+  #tourCard h2 { margin: 2px 0 6px; font-size: 17px; }
+  #tourCard p { margin: 0 0 14px; color: var(--muted); font-size: 14px; }
+  .tstep { color: var(--accent); font-size: 12px; font-weight: 600; }
+  .tbtns { display: flex; gap: 6px; align-items: center; }
+  .tbtns span { flex: 1; }
+  .tbtns .btn { padding: 8px 12px; font-size: 13px; }
+  .tbtns .tnext { background: var(--accent); border-color: var(--accent); color: #031426; text-shadow: none; }
+  #tourSkip { background: none; border-color: transparent; color: var(--muted); padding-left: 0; }
+
+  /* Licences & disclaimers modal (also in Settings → About) */
+  #legal { position: fixed; inset: 0; z-index: 70; display: none; place-items: center; padding: 16px; background: rgba(0,0,0,0.6); }
+  #legal.on { display: grid; }
+  .legal-card { text-align: left; max-height: calc(100vh - 32px); overflow-y: auto; width: min(460px, 100%); }
+  .about h3 { font-size: 13px; margin: 14px 0 4px; color: var(--text); }
+  .about h3:first-child { margin-top: 0; }
+  .about p { font-size: 12px; color: var(--muted); margin: 0 0 6px; line-height: 1.45; }
+  .about a { color: var(--accent); }
+
+  body.pre #rail, body.pre #panel, body.pre #topbar, body.pre #settings { display: none; }
+  body.bare #rail, body.bare #panel, body.bare #topbar, body.bare #settings { display: none; }
   body.bare #restore { display: block; }
   input[type=file] { display: none; }
 </style>
@@ -186,15 +253,30 @@
 <nav id="rail" aria-label="Controls"></nav>
 <section id="panel" aria-live="polite"></section>
 <button id="restore" aria-label="Show controls"></button>
+<div id="topbar"></div>
+<section id="settings" aria-label="Settings"><div class="tabs" id="tabs"></div><div id="settingsBody"></div></section>
+<div id="tour" role="dialog" aria-modal="true" aria-labelledby="tourTitle">
+  <div id="tourSpot"></div>
+  <div id="tourCard">
+    <div class="tstep" id="tourStep"></div>
+    <h2 id="tourTitle"></h2>
+    <p id="tourText"></p>
+    <div class="tbtns"><button class="btn" id="tourSkip" type="button">Skip</button><span></span>
+      <button class="btn" id="tourBack" type="button">Back</button><button class="btn tnext" id="tourNext" type="button">Next</button></div>
+  </div>
+</div>
+<div id="legal" role="dialog" aria-modal="true" aria-label="Licences and disclaimers">
+  <div class="card legal-card"><div class="ptitle"><span>Licences &amp; disclaimers</span><button type="button" id="legalClose" aria-label="Close">✕</button></div><div id="legalBody"></div></div>
+</div>
 <div id="toast"></div>
 
 <div id="start">
   <div class="card">
-    <h1>AR Floor Viewer</h1>
-    <p>Point the camera at the floor and move the phone slowly. Tap the floor to place the model.</p>
+    <h1>AR Cheetah Viewer</h1>
+    <p>Point the camera at the floor and move the phone slowly. Tap the floor to place the cheetah.</p>
     <button class="btn primary" id="startBtn">Start AR</button>
-    <p class="small">AR tracking by the 8th Wall Engine © Niantic Spatial, Inc. —
-      <a href="https://github.com/8thwall/engine/blob/main/LICENSE" target="_blank" rel="noopener">licence &amp; disclaimer</a></p>
+    <p class="small">AR tracking by the 8th Wall Engine © Niantic Spatial, Inc. Not affiliated with or endorsed by Niantic Spatial. —
+      <a href="#" id="legalLink">Licences &amp; disclaimers</a></p>
   </div>
 </div>
 
@@ -229,9 +311,13 @@ const ICONS = {
   fsEnter: '<path d="M4 9V4h5M20 9V4h-5M4 15v5h5M20 15v5h-5"/>',
   fsExit: '<path d="M9 4v5H4M15 4v5h5M9 20v-5H4M15 20v-5h5"/>',
   eye: '<path d="M2 12s3.6-7 10-7 10 7 10 7-3.6 7-10 7S2 12 2 12z"/><circle cx="12" cy="12" r="3"/>',
+  gear: '<circle cx="12" cy="12" r="3"/><path d="M19.4 15a1.7 1.7 0 0 0 .3 1.8l.1.1a2 2 0 1 1-2.8 2.8l-.1-.1a1.7 1.7 0 0 0-1.8-.3 1.7 1.7 0 0 0-1 1.5V21a2 2 0 1 1-4 0v-.1a1.7 1.7 0 0 0-1.1-1.5 1.7 1.7 0 0 0-1.8.3l-.1.1a2 2 0 1 1-2.8-2.8l.1-.1a1.7 1.7 0 0 0 .3-1.8 1.7 1.7 0 0 0-1.5-1H3a2 2 0 1 1 0-4h.1a1.7 1.7 0 0 0 1.5-1.1 1.7 1.7 0 0 0-.3-1.8l-.1-.1a2 2 0 1 1 2.8-2.8l.1.1a1.7 1.7 0 0 0 1.8.3H9a1.7 1.7 0 0 0 1-1.5V3a2 2 0 1 1 4 0v.1a1.7 1.7 0 0 0 1 1.5 1.7 1.7 0 0 0 1.8-.3l.1-.1a2 2 0 1 1 2.8 2.8l-.1.1a1.7 1.7 0 0 0-.3 1.8V9a1.7 1.7 0 0 0 1.5 1H21a2 2 0 1 1 0 4h-.1a1.7 1.7 0 0 0-1.5 1z"/>',
+  help: '<circle cx="12" cy="12" r="9.5"/><path d="M9.3 9.2a2.8 2.8 0 0 1 5.4 1c0 1.9-2.7 2.4-2.7 4.1"/><circle cx="12" cy="17.4" r=".7" fill="currentColor"/>',
+  reset: '<path d="M3.5 12a8.5 8.5 0 1 0 2.6-6.1L3.5 8.4"/><path d="M3.5 3.5v4.9h4.9"/>',
 };
 
-// Each entry is one icon in the rail and one flyout panel.
+// Each entry is one panel. Panels without `where` get an icon in the right-hand rail;
+// `where: 'settings'` panels live behind the gear (top right) so they aren't changed by accident.
 const PANELS = [
   { id: 'place', title: 'Position & rotation', items: [
     { key: 'rotY', label: 'Rotation', min: -180, max: 180, step: 1, def: 0, unit: '°' },
@@ -258,7 +344,7 @@ const PANELS = [
     { key: 'shadowOpacity', label: 'Shadow darkness', min: 0, max: 1, step: 0.01, def: 0.45 },
     { key: 'shadowSoft', label: 'Shadow softness', min: 0, max: 12, step: 0.1, def: 3 },
   ]},
-  { id: 'anim', title: 'Animation', items: [
+  { id: 'anim', title: 'Animation', tab: 'Animation', where: 'settings', items: [
     { type: 'seqstatus' },
     { type: 'toggle', key: 'useSeq', label: 'Play sequence (loops)', def: true },
     { type: 'toggle', key: 'playing', label: 'Playing', def: true },
@@ -276,18 +362,19 @@ const PANELS = [
     { key: 'volume', label: 'Volume', min: 0, max: 1, step: 0.01, def: 0.7 },
     { type: 'buttons', buttons: [{ id: 'musicBtn', label: 'Load music…' }] },
   ]},
-  { id: 'track', title: 'Tracking', items: [
+  { id: 'track', title: 'Tracking', tab: 'Tracking', where: 'settings', items: [
     { key: 'camH', label: 'Phone height above floor', min: 0.2, max: 3, step: 0.01, def: 1.4, unit: 'm' },
     { type: 'buttons', buttons: [{ id: 'recenterBtn', label: 'Recenter tracking' }] },
     { type: 'hint', text: 'Sets the real-world scale: measure how high the phone is held or mounted. Changing it recenters tracking, so place the model again afterwards.' },
   ]},
-  { id: 'model', title: 'Model & settings', items: [
+  { id: 'model', title: 'Model & settings', tab: 'Model', where: 'settings', items: [
     { type: 'status' },
     { type: 'buttons', buttons: [
       { id: 'loadBtn', label: 'Load model…' }, { id: 'copyBtn', label: 'Copy settings' },
-      { id: 'pasteBtn', label: 'Paste settings' }, { id: 'resetBtn', label: 'Reset', warn: true }] },
-    { type: 'credit' },
+      { id: 'pasteBtn', label: 'Paste settings' }, { id: 'resetBtn', label: 'Reset all', warn: true }] },
+    { type: 'hint', text: 'Settings are saved on this device. Copy settings gives you a backup you can paste back later.' },
   ]},
+  { id: 'about', title: 'About & licences', tab: 'About', where: 'settings', items: [{ type: 'about' }] },
 ];
 
 const DEFAULTS = { clip: '' };
@@ -499,16 +586,28 @@ function rangeRow(it) {
 }
 const inlineRow = (label, control) => el('div', { class: 'row inline' }, el('label', {}, label), control);
 
-function buildItem(it) {
+// Small ↺ button next to each value; dimmed while the value is already at its default
+let defaultSize = DEFAULTS.size;
+const defaultFor = key => key === 'size' ? defaultSize : DEFAULTS[key];
+const sameValue = (a, b) => typeof a === 'number' && typeof b === 'number' ? Math.abs(a - b) < 1e-9 : String(a).toLowerCase() === String(b).toLowerCase();
+function withReset(it, row) {
+  if (!it.key || !('def' in it)) return row;
+  const b = el('button', { class: 'rst', type: 'button', title: 'Reset to default', 'aria-label': `Reset ${it.label} to default` });
+  b.innerHTML = svg('reset');
+  b.onclick = () => change(it.key, defaultFor(it.key));
+  const host = row.querySelector('.val');
+  if (host) host.append(b); else row.insertBefore(b, row.lastElementChild);
+  const set = controls[it.key];
+  controls[it.key] = v => { set(v); b.classList.toggle('same', sameValue(v, defaultFor(it.key))); };
+  return row;
+}
+
+const buildItem = it => withReset(it, buildItem_(it));
+function buildItem_(it) {
   switch (it.type) {
     case 'hint': return el('p', { class: 'hint' }, it.text);
     case 'status': { const p = el('p', { class: 'status', id: 'status' }, statusText); return p; }
-    case 'credit': {
-      const p = el('p', { class: 'credit' }, 'AR tracking: 8th Wall Engine © Niantic Spatial, Inc. Used under the ');
-      p.append(el('a', { href: LICENCE_URL, target: '_blank', rel: 'noopener' }, '8th Wall Engine Binary License'),
-        ', provided “as is” without warranty. Not affiliated with or endorsed by Niantic Spatial.');
-      return p;
-    }
+    case 'about': return aboutContent();
     case 'buttons':
       return el('div', { class: 'btns' }, ...it.buttons.map(b => el('button', { class: 'btn' + (b.warn ? ' warn' : ''), id: b.id, type: 'button' }, b.label)));
     case 'toggle': {
@@ -540,14 +639,23 @@ function buildItem(it) {
   }
 }
 
-const panelBodies = {}, railButtons = {};
+const panelBodies = {}, railButtons = {}, tabButtons = {};
+let openSettings = null, lastSettingsTab = null;
 function buildUI() {
-  const rail = $('rail'), panel = $('panel');
+  const rail = $('rail'), tabs = $('tabs'), top = $('topbar');
   for (const p of PANELS) {
+    const inSettings = p.where === 'settings';
     const close = el('button', { type: 'button', 'aria-label': 'Close' }, '✕');
-    close.onclick = () => showPanel(null);
+    close.onclick = () => inSettings ? showSettings(null) : showPanel(null);
     panelBodies[p.id] = el('div', {}, el('div', { class: 'ptitle' }, el('span', {}, p.title), close),
       el('div', { class: 'rows' }, ...p.items.map(buildItem)));
+    if (inSettings) {
+      const t = el('button', { type: 'button' }, p.tab || p.title);
+      t.onclick = () => showSettings(p.id);
+      tabButtons[p.id] = t;
+      tabs.append(t);
+      continue;
+    }
     const b = el('button', { class: 'icon', type: 'button', 'aria-label': p.title, title: p.title });
     b.innerHTML = svg(p.id);
     b.onclick = () => showPanel(openPanel === p.id ? null : p.id);
@@ -564,19 +672,145 @@ function buildUI() {
   eye.innerHTML = svg('eye');
   eye.onclick = () => setBare(true);
   rail.append(fs, eye);
-  panel.replaceChildren();
+
+  const help = el('button', { class: 'icon', type: 'button', id: 'helpBtn', 'aria-label': 'Guided tour', title: 'Guided tour' });
+  help.innerHTML = svg('help');
+  help.onclick = () => startTour();
+  const gear = el('button', { class: 'icon', type: 'button', id: 'gearBtn', 'aria-label': 'Settings', title: 'Settings' });
+  gear.innerHTML = svg('gear');
+  gear.onclick = () => showSettings(openSettings ? null : (lastSettingsTab || 'anim'));
+  top.append(help, gear);
+  $('panel').replaceChildren();
 }
 function showPanel(id) {
+  if (id) showSettings(null);
   openPanel = id;
   for (const k in railButtons) railButtons[k].classList.toggle('active', k === id);
   const panel = $('panel');
   panel.replaceChildren(...(id ? [panelBodies[id]] : []));
   panel.classList.toggle('open', !!id);
 }
+function showSettings(id) {
+  if (id) { showPanel(null); lastSettingsTab = id; }
+  openSettings = id;
+  for (const k in tabButtons) tabButtons[k].classList.toggle('active', k === id);
+  $('gearBtn')?.classList.toggle('active', !!id);
+  $('settingsBody').replaceChildren(...(id ? [panelBodies[id]] : []));
+  $('settings').classList.toggle('open', !!id);
+  document.body.classList.toggle('settings-open', !!id);
+  if (id === 'anim') { lastStatus = ''; updateStatus(); highlightStep(); }
+}
 function setBare(on) {
+  if (on) { showPanel(null); showSettings(null); }
   document.body.classList.toggle('bare', on);
   if (on) toast('Tap the circle or double-tap to show controls', 2500);
 }
+
+// ---------- About, licences & disclaimers ----------
+function aboutContent() {
+  const link = (href, text) => el('a', { href, target: '_blank', rel: 'noopener' }, text);
+  const p = (...kids) => el('p', {}, ...kids);
+  return el('div', { class: 'about' },
+    el('h3', {}, 'AR Cheetah Viewer'),
+    p('A web-based augmented reality viewer. Stay aware of your surroundings while using it, and don’t use it while walking near traffic, stairs or other hazards.'),
+    el('h3', {}, 'AR tracking: 8th Wall Engine'),
+    p('World tracking is provided by the 8th Wall Engine (Distributed Engine Binary), © Niantic Spatial, Inc. All rights reserved.'),
+    p('Used under the ', link(LICENCE_URL, '8th Wall Engine Binary License'), '. The engine is provided “as is”, without warranty of any kind, express or implied. See the licence for the full disclaimer of warranties and limitation of liability.'),
+    p('This project is not affiliated with, sponsored by, or endorsed by Niantic Spatial, Inc. or 8th Wall. “Niantic”, “Niantic Spatial” and “8th Wall” are trademarks of their respective owners.'),
+    p('The 8th Wall XRExtras and Landing Page helper libraries are loaded unmodified from a public CDN. See ', link('https://github.com/8thwall/8thwall', 'github.com/8thwall'), ' for their licences.'),
+    el('h3', {}, '3D model'),
+    p('Cheetah model and animations by planeta-elefante (', link('https://sketchfab.com/3d-models/cheetah-8d3ba32a2ff34acc9b5c590bc06cb561', 'Sketchfab'), '), licensed under ', link('https://creativecommons.org/licenses/by/4.0/', 'CC BY 4.0'), '. Modified for this viewer.'),
+    el('h3', {}, 'Software'),
+    p(link('https://threejs.org', 'three.js'), ', MIT License, © 2010–2026 three.js authors.'),
+  );
+}
+$('legalLink').onclick = e => { e.preventDefault(); $('legalBody').replaceChildren(aboutContent()); $('legal').classList.add('on'); };
+$('legalClose').onclick = () => $('legal').classList.remove('on');
+$('legal').onclick = e => { if (e.target === $('legal')) $('legal').classList.remove('on'); };
+
+// ---------- Guided tour ----------
+// Each step spotlights one or more elements (everything else is dimmed) and explains them.
+const TOUR = [
+  { title: 'Welcome to AR Cheetah Viewer', text: 'This quick tour shows what each control does. Tap Next to continue, or Skip to jump straight in.' },
+  { title: 'Touch gestures', text: 'Tap the floor to place the cheetah. Then drag with one finger to move it, pinch to resize, and twist two fingers to rotate it.' },
+  { panel: 'place', title: 'Position & rotation', text: 'Rotate, resize and fine-tune the cheetah’s position. “Place again” lets you put it somewhere else. Each ↺ button resets that value to its default.' },
+  { panel: 'light', title: 'Light source', text: 'Set where the light comes from so the cheetah’s shadow matches the real shadows in the room. An arrow shows the direction while you adjust it.' },
+  { panel: 'shadow', title: 'Shadow', text: 'Make the shadow darker or lighter, and softer or sharper, so it blends in with the floor.' },
+  { panel: 'music', title: 'Music', text: 'Turn the soundtrack on or off and set its volume.' },
+  { target: () => [$('fsBtn')], skip: () => $('fsBtn').style.display === 'none', title: 'Fullscreen', text: 'Go fullscreen. If the camera permission prompt takes you out of fullscreen, tap here to go back in.' },
+  { target: () => [$('eyeBtn')], title: 'Hide controls', text: 'Hides every control for a clean view. A faint circle stays on the right edge. Tap it, or double-tap anywhere, to bring the controls back.' },
+  { settings: 'anim', title: 'Settings', text: 'The animation sequence, tracking, model files and licences are here, out of the way so they aren’t changed by accident.' },
+  { target: () => [$('helpBtn')], title: 'Replay the tour', text: 'Tap here any time to see this tour again. Enjoy!' },
+];
+let tourIndex = -1;
+function tourHint() {
+  let seen = false;
+  try { seen = !!localStorage.getItem('ar-tour-seen'); } catch {}
+  if (!seen) setTimeout(() => toast('New here? Tap ? (top right) for a quick tour', 4500), 1500);
+}
+function startTour() {
+  setBare(false);
+  $('toast').classList.remove('on');
+  $('tour').classList.add('on');
+  tourGo(0, 1);
+}
+function endTour() {
+  $('tour').classList.remove('on');
+  tourIndex = -1;
+  showPanel(null); showSettings(null);
+  try { localStorage.setItem('ar-tour-seen', '1'); } catch {}
+}
+function tourGo(i, dir) {
+  while (TOUR[i]?.skip?.()) i += dir;
+  if (i < 0) i = 0;
+  if (i >= TOUR.length) return endTour();
+  tourIndex = i;
+  const step = TOUR[i];
+  showPanel(step.panel || null);
+  showSettings(step.settings || null);
+  $('tourStep').textContent = `${i + 1} of ${TOUR.length}`;
+  $('tourTitle').textContent = step.title;
+  $('tourText').textContent = step.text;
+  $('tourBack').style.visibility = i === 0 ? 'hidden' : 'visible';
+  $('tourNext').textContent = i === TOUR.length - 1 ? 'Done' : 'Next';
+  // wait for panels to lay out before measuring them
+  requestAnimationFrame(() => requestAnimationFrame(positionTour));
+}
+function tourTargets(step) {
+  if (step.panel) return [railButtons[step.panel], $('panel')];
+  if (step.settings) return [$('gearBtn'), $('settings')];
+  return step.target ? step.target() : [];
+}
+function positionTour() {
+  if (tourIndex < 0) return;
+  const rects = tourTargets(TOUR[tourIndex]).filter(Boolean).map(e => e.getBoundingClientRect()).filter(r => r.width && r.height);
+  const spot = $('tourSpot'), card = $('tourCard');
+  const W = innerWidth, H = innerHeight, pad = 6, m = 14;
+  let r = null;
+  if (rects.length) {
+    const l = Math.min(...rects.map(q => q.left)) - pad, t = Math.min(...rects.map(q => q.top)) - pad;
+    const rt = Math.max(...rects.map(q => q.right)) + pad, b = Math.max(...rects.map(q => q.bottom)) + pad;
+    r = { left: l, top: t, width: rt - l, height: b - t, right: rt, bottom: b };
+    Object.assign(spot.style, { left: l + 'px', top: t + 'px', width: r.width + 'px', height: r.height + 'px' });
+    spot.classList.remove('none');
+  } else {
+    Object.assign(spot.style, { left: W / 2 + 'px', top: H / 2 + 'px', width: '0px', height: '0px' });
+    spot.classList.add('none');
+  }
+  const cw = card.offsetWidth, ch = card.offsetHeight;
+  let x, y;
+  if (!r) { x = (W - cw) / 2; y = (H - ch) / 2; }
+  else if (r.left - cw - m >= 8) { x = r.left - cw - m; y = r.top + r.height / 2 - ch / 2; }
+  else if (r.bottom + ch + m <= H - 8) { x = r.left + r.width / 2 - cw / 2; y = r.bottom + m; }
+  else if (r.top - ch - m >= 8) { x = r.left + r.width / 2 - cw / 2; y = r.top - ch - m; }
+  else { x = 8; y = H - ch - 8; } // no free space (small phone, tall panel): sit at the bottom
+  card.style.left = clamp(x, 8, W - cw - 8) + 'px';
+  card.style.top = clamp(y, 8, H - ch - 8) + 'px';
+}
+$('tourNext').onclick = () => tourGo(tourIndex + 1, 1);
+$('tourBack').onclick = () => tourGo(tourIndex - 1, -1);
+$('tourSkip').onclick = endTour;
+addEventListener('resize', () => requestAnimationFrame(positionTour));
 const refreshUI = () => { for (const k in controls) controls[k](S[k]); };
 
 // ---------- Fullscreen ----------
@@ -623,7 +857,8 @@ function setModel(gltf, name, isFallback) {
   model.position.set(-center.x, -box.min.y, -center.z);
   inner.add(model);
   naturalHeight = size.y > 1e-6 ? size.y : 1;
-  if (!sizeIsSet) S.size = isFallback ? 1.2 : (naturalHeight >= 0.05 && naturalHeight <= 10 ? +naturalHeight.toFixed(2) : 1);
+  defaultSize = isFallback ? 1.2 : (naturalHeight >= 0.05 && naturalHeight <= 10 ? +naturalHeight.toFixed(2) : 1);
+  if (!sizeIsSet) S.size = defaultSize;
 
   mixer = new THREE.AnimationMixer(model);
   clips = gltf.animations || [];
@@ -939,6 +1174,7 @@ const scenePipelineModule = () => ({
     apply();
     startPlacing();
     document.body.classList.remove('pre');
+    tourHint();
   },
   onUpdate: () => {
     timer.update();
@@ -978,7 +1214,8 @@ function startPreview() {
   resize();
   apply();
   document.body.classList.remove('pre');
-  window.__preview = { seq, SEQ, frameUpdate, weights: () => mixer ? mixer._actions.filter(a => a.isRunning()).map(a => [a.getClip().name, +a.getEffectiveWeight().toFixed(3)]) : [] };
+  tourHint();
+  window.__preview = { seq, SEQ, frameUpdate, setView: (az, el, dist) => Object.assign(orbit, { az, el, dist }), model: () => model, weights: () => mixer ? mixer._actions.filter(a => a.isRunning()).map(a => [a.getClip().name, +a.getEffectiveWeight().toFixed(3)]) : [] };
   renderer.setAnimationLoop(() => {
     timer.update();
     frameUpdate(timer.getDelta());
@@ -1117,7 +1354,7 @@ btn('resetBtn').onclick = () => {
   const oldH = S.camH;
   Object.assign(S, DEFAULTS);
   sizeIsSet = false;
-  if (model) S.size = naturalHeight >= 0.05 && naturalHeight <= 10 ? +naturalHeight.toFixed(2) : 1.2;
+  S.size = defaultSize;
   apply(); refreshUI(); save(); restartAnimation();
   if (S.camH !== oldH) applyCameraHeight();
 };
