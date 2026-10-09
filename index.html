@@ -280,7 +280,6 @@
   </div>
 </div>
 
-<audio id="music" loop preload="auto" playsinline></audio>
 <input type="file" id="fileIn">
 <input type="file" id="musicIn">
 
@@ -548,7 +547,7 @@ let clipSelect, camHTimer, openPanel = null;
 function change(key, v) {
   S[key] = v;
   if (key === 'size') sizeIsSet = true;
-  if (key === 'musicOn') v ? playMusic() : music.pause();
+  if (key === 'musicOn') v ? playMusic() : stopMusic();
   if (key === 'camH') { clearTimeout(camHTimer); camHTimer = setTimeout(applyCameraHeight, 600); }
   if (key === 'lightAz' || key === 'lightEl') lightTouchedAt = performance.now();
   if (key === 'useSeq') restartAnimation();
@@ -739,7 +738,6 @@ const TOUR = [
   { panel: 'music', title: 'Music', text: 'Turn the soundtrack on or off and set its volume.' },
   { target: () => [$('fsBtn')], skip: () => $('fsBtn').style.display === 'none', title: 'Fullscreen', text: 'Go fullscreen. If the camera permission prompt takes you out of fullscreen, tap here to go back in.' },
   { target: () => [$('eyeBtn')], title: 'Hide controls', text: 'Hides every control for a clean view. A faint circle stays on the right edge. Tap it, or double-tap anywhere, to bring the controls back.' },
-  { settings: 'anim', title: 'Settings', text: 'The animation sequence, tracking, model files and licences are here, out of the way so they aren’t changed by accident.' },
   { target: () => [$('helpBtn')], title: 'Replay the tour', text: 'Tap here any time to see this tour again. Enjoy!' },
 ];
 let tourIndex = -1;
@@ -1057,28 +1055,62 @@ function loadModel(url, name, isFallback = false) {
   });
 }
 
-// ---------- Music (Web Audio so volume works on iOS) ----------
-const music = $('music');
-music.src = MUSIC_URL;
-let musicMissing = false, audioCtx = null, gain = null;
-music.addEventListener('error', () => { musicMissing = true; });
-function unlockAudio() {
+// ---------- Music ----------
+// The track is decoded once and looped sample-accurately with Web Audio, so there's no gap at the
+// loop point (an <audio loop> element pauses briefly on MP3 padding). Volume works on iOS too.
+let audioCtx = null, gain = null, musicBuffer = null, musicSource = null;
+let musicMissing = false, musicWanted = false;
+const LOOP_TRIM = 0.06; // seconds skipped at each end: MP3 encoder padding
+function ensureAudioCtx() {
   if (!audioCtx) {
     try {
       audioCtx = new (window.AudioContext || window.webkitAudioContext)();
       gain = audioCtx.createGain();
-      audioCtx.createMediaElementSource(music).connect(gain).connect(audioCtx.destination);
       gain.gain.value = S.volume;
+      gain.connect(audioCtx.destination);
     } catch { audioCtx = null; }
   }
-  audioCtx?.resume?.();
+  return audioCtx;
+}
+function unlockAudio() { ensureAudioCtx()?.resume?.(); }
+function loadMusic(src) {
+  musicMissing = false;
+  const ctx = ensureAudioCtx();
+  if (!ctx) { musicMissing = true; return; }
+  fetch(src)
+    .then(r => { if (!r.ok) throw new Error(r.status); return r.arrayBuffer(); })
+    .then(data => new Promise((res, rej) => ctx.decodeAudioData(data, res, rej))) // callback form for older Safari
+    .then(buf => { musicBuffer = buf; if (musicWanted) startMusicSource(); })
+    .catch(() => { musicMissing = true; musicBuffer = null; });
+}
+function startMusicSource() {
+  stopMusicSource();
+  if (!musicBuffer || !audioCtx) return;
+  const src = audioCtx.createBufferSource();
+  const trim = Math.min(LOOP_TRIM, musicBuffer.duration / 4);
+  src.buffer = musicBuffer;
+  src.loop = true;
+  src.loopStart = trim;
+  src.loopEnd = musicBuffer.duration - trim;
+  src.connect(gain);
+  src.start(0, trim);
+  musicSource = src;
+}
+function stopMusicSource() {
+  if (!musicSource) return;
+  try { musicSource.stop(); } catch {}
+  musicSource.disconnect();
+  musicSource = null;
 }
 function playMusic() {
+  musicWanted = true;
+  unlockAudio(); // must run inside a tap on iOS
   if (musicMissing) { toast('No music.mp3 found — use "Load music…"'); return; }
-  unlockAudio();
-  music.play().catch(() => {});
+  if (musicBuffer && !musicSource) startMusicSource(); // otherwise it starts as soon as it's decoded
 }
-// iOS pauses audio when the page is hidden — resume when it comes back
+function stopMusic() { musicWanted = false; stopMusicSource(); }
+loadMusic(MUSIC_URL);
+// iOS suspends audio while the page is hidden — resume when it comes back
 document.addEventListener('visibilitychange', () => {
   if (document.visibilityState === 'visible' && started && S.musicOn && !musicMissing) playMusic();
 });
@@ -1215,7 +1247,7 @@ function startPreview() {
   apply();
   document.body.classList.remove('pre');
   tourHint();
-  window.__preview = { seq, SEQ, frameUpdate, setView: (az, el, dist) => Object.assign(orbit, { az, el, dist }), model: () => model, weights: () => mixer ? mixer._actions.filter(a => a.isRunning()).map(a => [a.getClip().name, +a.getEffectiveWeight().toFixed(3)]) : [] };
+  window.__preview = { seq, SEQ, frameUpdate, setView: (az, el, dist) => Object.assign(orbit, { az, el, dist }), model: () => model, music: () => ({ decoded: !!musicBuffer, seconds: musicBuffer && +musicBuffer.duration.toFixed(2), playing: !!musicSource, loop: musicSource && [+musicSource.loopStart.toFixed(3), +musicSource.loopEnd.toFixed(3)], ctx: audioCtx?.state, missing: musicMissing }), weights: () => mixer ? mixer._actions.filter(a => a.isRunning()).map(a => [a.getClip().name, +a.getEffectiveWeight().toFixed(3)]) : [] };
   renderer.setAnimationLoop(() => {
     timer.update();
     frameUpdate(timer.getDelta());
@@ -1334,8 +1366,9 @@ btn('musicBtn').onclick = () => $('musicIn').click();
 $('musicIn').onchange = e => {
   const f = e.target.files[0];
   if (!f) return;
-  musicMissing = false;
-  music.src = URL.createObjectURL(f);
+  stopMusicSource();
+  musicBuffer = null;
+  loadMusic(URL.createObjectURL(f));
   if (S.musicOn) playMusic();
   toast(`Music: ${f.name} (this session only)`);
   e.target.value = '';
