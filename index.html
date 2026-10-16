@@ -102,7 +102,7 @@
 
   /* Restore circle shown when the UI is hidden */
   #restore {
-    position: fixed; z-index: 20; right: calc(var(--edge) + (var(--btn) - 26px) / 2); top: 50%; transform: translateY(-50%);
+    position: fixed; z-index: 20; right: calc(var(--edge) + 6px); bottom: max(16px, calc(env(safe-area-inset-bottom) + 6px));
     width: 26px; height: 26px; border-radius: 50%; padding: 0; background: transparent;
     border: 1.5px solid rgba(255, 255, 255, 0.35); display: none; cursor: pointer;
   }
@@ -395,18 +395,13 @@ function save() {
 // Each step plays `clip` for `cycles` loops, then blends into the next step; the list repeats forever.
 // `blend` (seconds) on a step overrides the global blend for the transition INTO that step.
 const DEFAULT_SEQUENCE = [
-  { clip: 'Armature.001Action.001', cycles: 1 },
+  { clip: 'Sit', cycles: 4 },
+  { clip: 'Idle', cycles: 4 },
+  { clip: 'Armature.001Action.001', cycles: 4 },
   { clip: 'Walk', cycles: 4 },
-  { clip: 'Idle', cycles: 2 },
-  { clip: 'Armature.001Action', cycles: 3 },
-  { clip: 'Idle', cycles: 1 },
-  { clip: 'Armature.001Action.001', cycles: 2 },
-  { clip: 'Idle', cycles: 1 },
-  { clip: 'Armature.001Action', cycles: 2 },
-  { clip: 'Idle', cycles: 1 },
-  { clip: 'Walk', cycles: 4 },
+  { clip: 'Idle', cycles: 4 },
 ];
-const SEQ_KEY = 'ar-8thwall-sequence-v1';
+const SEQ_KEY = 'ar-8thwall-sequence-v2'; // bumped so devices drop the old saved sequence
 let SEQ;
 try { SEQ = JSON.parse(localStorage.getItem(SEQ_KEY)); } catch {}
 if (!Array.isArray(SEQ) || !SEQ.length) SEQ = structuredClone(DEFAULT_SEQUENCE);
@@ -737,7 +732,7 @@ const TOUR = [
   { panel: 'shadow', title: 'Shadow', text: 'Make the shadow darker or lighter, and softer or sharper, so it blends in with the floor.' },
   { panel: 'music', title: 'Music', text: 'Turn the soundtrack on or off and set its volume.' },
   { target: () => [$('fsBtn')], skip: () => $('fsBtn').style.display === 'none', title: 'Fullscreen', text: 'Go fullscreen. If the camera permission prompt takes you out of fullscreen, tap here to go back in.' },
-  { target: () => [$('eyeBtn')], title: 'Hide controls', text: 'Hides every control for a clean view. A faint circle stays on the right edge. Tap it, or double-tap anywhere, to bring the controls back.' },
+  { target: () => [$('eyeBtn')], title: 'Hide controls', text: 'Hides every control for a clean view. A faint circle stays in the bottom-right corner. Tap it, or double-tap anywhere, to bring the controls back.' },
   { target: () => [$('helpBtn')], title: 'Replay the tour', text: 'Tap here any time to see this tour again. Enjoy!' },
 ];
 let tourIndex = -1;

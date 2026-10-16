@@ -43,7 +43,7 @@ No build step is needed. Everything loads from CDNs.
 | Crosshair | **Tracking**: phone height above floor, *Recenter tracking* |
 | Cube | **Model & settings**: load a model, copy, paste or reset settings, licence notice |
 | Corner brackets | **Fullscreen** on/off (hidden on iPhone, where Safari doesn't allow it) |
-| Eye | **Hide controls**: leaves a faint outline circle; tap it, or double-tap, to bring them back |
+| Eye | **Hide controls**: leaves a faint outline circle in the bottom-right corner; tap it, or double-tap, to bring them back |
 
 All panels are see-through so they cover as little of the camera view as possible.
 
@@ -53,18 +53,13 @@ The model plays a looping sequence of clips, defined in `DEFAULT_SEQUENCE` near 
 
 | Step | Clip | Cycles |
 |---|---|---|
-| 1 | Armature.001Action.001 | 1 |
-| 2 | Walk | 4 |
-| 3 | Idle | 2 |
-| 4 | Armature.001Action | 3 |
-| 5 | Idle | 1 |
-| 6 | Armature.001Action.001 | 2 |
-| 7 | Idle | 1 |
-| 8 | Armature.001Action | 2 |
-| 9 | Idle | 1 |
-| 10 | Walk | 4 |
+| 1 | Sit | 4 |
+| 2 | Idle | 4 |
+| 3 | Armature.001Action.001 (second idle) | 4 |
+| 4 | Walk | 4 |
+| 5 | Idle | 4 |
 
-Then it loops back to step 1. One loop takes about 80 s.
+Then it loops back to step 1. One loop takes about 100 s.
 
 - Each step crossfades into the next over **Blend between clips** (0.8 s by default), using the chosen **Blend easing** (ease in-out by default). A step can override the blend with its own value in the **Blend s** column.
 - Clips are cleaned up when they load. Blender's one-frame start offset is removed, and each clip's last 0.3 s is eased back into its first pose, so repeated cycles loop without a pop.
